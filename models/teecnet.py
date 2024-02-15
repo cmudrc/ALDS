@@ -228,6 +228,9 @@ class TEECNetConv(nn.Module):
 
     def symmetric_padding(self, x, mode):
         # pad the domain symmetrically to make it divisible by sub_size
+        # get input shape to determine if the input is batched or not
+        if len(x.shape) == 3:
+            x = x.unsqueeze(0)
         # get pad size
         pad_size = (x.shape[1] % self.sub_size) // 2 + 1
         x = F.pad(x, (0, 0, pad_size, pad_size, pad_size, pad_size, 0, 0))
@@ -276,4 +279,10 @@ class TEECNetConv(nn.Module):
             return x
 
     def forward(self, x):
-       grid = self.get_grid(x.shape, x.device)
+        grid = self.get_grid(x.shape, x.device)
+        x = torch.cat((x, grid), dim=-1)
+        x = self.fc1(x)
+        for i in range(self.num_layers):
+            x = self.kernel(x, None, x)
+        x = self.fc_out(x)
+        return x

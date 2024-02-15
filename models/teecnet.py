@@ -1,39 +1,40 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch_geometric.nn as pyg_nn
-from torch_geometric.nn.inits import reset, uniform
+from torch.nn.init import xavier_uniform_ as reset
+# import torch_geometric.nn as pyg_nn
+# from torch_geometric.nn.inits import reset, uniform
 import torch.nn.functional as F
-from torch_scatter import scatter_softmax
+# from torch_scatter import scatter_softmax
 
 
-class TEECNet(torch.nn.Module):
-    r"""The Taylor-series Expansion Error Correction Network which consists of several layers of a Taylor-series Error Correction kernel.
+# class TEECNet(torch.nn.Module):
+#     r"""The Taylor-series Expansion Error Correction Network which consists of several layers of a Taylor-series Error Correction kernel.
 
-    Args:
-        in_channels (int): Size of each input sample.
-        width (int): Width of the hidden layers.
-        out_channels (int): Size of each output sample.
-        num_layers (int): Number of layers.
-        **kwargs: Additional arguments of :class:'torch_geometric.nn.conv.MessagePassing'
-    """
-    def __init__(self, in_channels, width, out_channels, num_layers=4, **kwargs):
-        super(TEECNet, self).__init__()
-        self.num_layers = num_layers
+#     Args:
+#         in_channels (int): Size of each input sample.
+#         width (int): Width of the hidden layers.
+#         out_channels (int): Size of each output sample.
+#         num_layers (int): Number of layers.
+#         **kwargs: Additional arguments of :class:'torch_geometric.nn.conv.MessagePassing'
+#     """
+#     def __init__(self, in_channels, width, out_channels, num_layers=4, **kwargs):
+#         super(TEECNet, self).__init__()
+#         self.num_layers = num_layers
 
-        self.fc1 = nn.Linear(in_channels, width)
-        self.kernel = KernelConv(width, width, kernel=PowerSeriesKernel, in_edge=5, num_layers=5, **kwargs)
-        # self.kernel_out = KernelConv(width, out_channels, kernel=PowerSeriesKernel, in_edge=1, num_layers=2, **kwargs)
-        self.fc_out = nn.Linear(width, out_channels)
+#         self.fc1 = nn.Linear(in_channels, width)
+#         self.kernel = KernelConv(width, width, kernel=PowerSeriesKernel, in_edge=5, num_layers=5, **kwargs)
+#         # self.kernel_out = KernelConv(width, out_channels, kernel=PowerSeriesKernel, in_edge=1, num_layers=2, **kwargs)
+#         self.fc_out = nn.Linear(width, out_channels)
 
-    def forward(self, x, edge_index, edge_attr):
-        x = self.fc1(x)
-        for i in range(self.num_layers):
-            # x = F.relu(self.kernel(x, edge_index, edge_attr))
-            x = self.kernel(x, edge_index, edge_attr)
-        # x = self.kernel_out(x, edge_index, edge_attr)
-        x = self.fc_out(x)
-        return x
+#     def forward(self, x, edge_index, edge_attr):
+#         x = self.fc1(x)
+#         for i in range(self.num_layers):
+#             # x = F.relu(self.kernel(x, edge_index, edge_attr))
+#             x = self.kernel(x, edge_index, edge_attr)
+#         # x = self.kernel_out(x, edge_index, edge_attr)
+#         x = self.fc_out(x)
+#         return x
 
 
 class DenseNet(torch.nn.Module):
@@ -77,14 +78,14 @@ class PowerSeriesConv(nn.Module):
         self.activation = nn.Tanh()
         self.root_param = nn.Parameter(torch.Tensor(num_powers, out_channel))
 
-        self.reset_parameters()
+        # self.reset_parameters()
 
     def reset_parameters(self):
         for i in range(self.num_powers):
             # reset(self.convs[i])
             reset(self.conv)
-        size = self.num_powers
-        uniform(size, self.root_param)
+        # size = self.num_powers
+        # uniform(size, self.root_param)
 
     def forward(self, x):
         x_full = None
@@ -122,88 +123,88 @@ class PowerSeriesKernel(nn.Module):
         return x
 
 
-class KernelConv(pyg_nn.MessagePassing):
-    r"""
-    The continuous kernel-based convolutional operator from the
-    `"Neural Message Passing for Quantum Chemistry"
-    <https://arxiv.org/abs/1704.01212>`_ paper.
-    This convolution is also known as the edge-conditioned convolution from the
-    `"Dynamic Edge-Conditioned Filters in Convolutional Neural Networks on
-    Graphs" <https://arxiv.org/abs/1704.02901>`_ paper (see
-    :class:`torch_geometric.nn.conv.ECConv` for an alias):
+# class KernelConv(pyg_nn.MessagePassing):
+#     r"""
+#     The continuous kernel-based convolutional operator from the
+#     `"Neural Message Passing for Quantum Chemistry"
+#     <https://arxiv.org/abs/1704.01212>`_ paper.
+#     This convolution is also known as the edge-conditioned convolution from the
+#     `"Dynamic Edge-Conditioned Filters in Convolutional Neural Networks on
+#     Graphs" <https://arxiv.org/abs/1704.02901>`_ paper (see
+#     :class:`torch_geometric.nn.conv.ECConv` for an alias):
 
-    .. math::
-        \mathbf{x}^{\prime}_i = \mathbf{\Theta} \mathbf{x}_i +
-        \sum_{j \in \mathcal{N}(i)} \mathbf{x}_j \cdot
-        h_{\mathbf{\Theta}}(\mathbf{e}_{i,j}),
+#     .. math::
+#         \mathbf{x}^{\prime}_i = \mathbf{\Theta} \mathbf{x}_i +
+#         \sum_{j \in \mathcal{N}(i)} \mathbf{x}_j \cdot
+#         h_{\mathbf{\Theta}}(\mathbf{e}_{i,j}),
 
-    where :math:`h_{\mathbf{\Theta}}` denotes a neural network, *.i.e.*
-    a MLP. In our implementation the kernel is combined via a Taylor expansion of 
-    graph edge attributes :math:`\mathbf{e}_{i,j}` and a typical neural operator implementation
-    of a DenseNet kernel.
+#     where :math:`h_{\mathbf{\Theta}}` denotes a neural network, *.i.e.*
+#     a MLP. In our implementation the kernel is combined via a Taylor expansion of 
+#     graph edge attributes :math:`\mathbf{e}_{i,j}` and a typical neural operator implementation
+#     of a DenseNet kernel.
 
-    Args:
-        in_channel (int): Size of each input sample (nodal values).
-        out_channel (int): Size of each output sample (nodal values).
-        kernel (torch.nn.Module): A kernel function that maps edge attributes to
-            edge weights.
-        in_edge (int): Size of each input edge attribute.
-        num_layers (int): Number of layers in the Taylor-series expansion kernel.
-    """
-    def __init__(self, in_channel, out_channel, kernel, in_edge=1, num_layers=3, **kwargs):
-        super(KernelConv, self).__init__(aggr='mean')
-        self.in_channels = in_channel
-        self.out_channels = out_channel
-        self.in_edge = in_edge
-        self.root_param = nn.Parameter(torch.Tensor(in_channel, out_channel))
-        self.bias = nn.Parameter(torch.Tensor(out_channel))
+#     Args:
+#         in_channel (int): Size of each input sample (nodal values).
+#         out_channel (int): Size of each output sample (nodal values).
+#         kernel (torch.nn.Module): A kernel function that maps edge attributes to
+#             edge weights.
+#         in_edge (int): Size of each input edge attribute.
+#         num_layers (int): Number of layers in the Taylor-series expansion kernel.
+#     """
+#     def __init__(self, in_channel, out_channel, kernel, in_edge=1, num_layers=3, **kwargs):
+#         super(KernelConv, self).__init__(aggr='mean')
+#         self.in_channels = in_channel
+#         self.out_channels = out_channel
+#         self.in_edge = in_edge
+#         self.root_param = nn.Parameter(torch.Tensor(in_channel, out_channel))
+#         self.bias = nn.Parameter(torch.Tensor(out_channel))
 
-        self.linear = nn.Linear(in_channel, out_channel)
-        self.kernel = kernel(in_channel=in_edge, out_channel=out_channel**2, num_layers=num_layers, **kwargs)
-        self.operator_kernel = DenseNet([in_edge, 64, 128, out_channel**2], nn.ReLU)
-        if kwargs['retrieve_weight']:
-            self.retrieve_weights = True
-            self.weight_k = None
-            self.weight_op = None
-        else:
-            self.retrieve_weights = False
+#         self.linear = nn.Linear(in_channel, out_channel)
+#         self.kernel = kernel(in_channel=in_edge, out_channel=out_channel**2, num_layers=num_layers, **kwargs)
+#         self.operator_kernel = DenseNet([in_edge, 64, 128, out_channel**2], nn.ReLU)
+#         if kwargs['retrieve_weight']:
+#             self.retrieve_weights = True
+#             self.weight_k = None
+#             self.weight_op = None
+#         else:
+#             self.retrieve_weights = False
 
-        self.reset_parameters()
+#         self.reset_parameters()
 
-    def reset_parameters(self):
-        reset(self.kernel)
-        reset(self.linear)
-        reset(self.operator_kernel)
-        size = self.in_channels
-        uniform(size, self.root_param)
-        uniform(size, self.bias)
+#     def reset_parameters(self):
+#         reset(self.kernel)
+#         reset(self.linear)
+#         reset(self.operator_kernel)
+#         size = self.in_channels
+#         uniform(size, self.root_param)
+#         uniform(size, self.bias)
 
-    def forward(self, x, edge_index, edge_attr):
-        x = x.unsqueeze(-1) if x.dim() == 1 else x
-        pseudo = edge_attr.unsqueeze(-1) if edge_attr.dim() == 1 else edge_attr
-        return self.propagate(edge_index, x=x, pseudo=pseudo)
+#     def forward(self, x, edge_index, edge_attr):
+#         x = x.unsqueeze(-1) if x.dim() == 1 else x
+#         pseudo = edge_attr.unsqueeze(-1) if edge_attr.dim() == 1 else edge_attr
+#         return self.propagate(edge_index, x=x, pseudo=pseudo)
     
-    def message(self, x_i, x_j, pseudo):
-        weight_k = self.kernel(pseudo).view(-1, self.out_channels, self.out_channels)
-        weight_op = self.operator_kernel(pseudo).view(-1, self.out_channels, self.out_channels)
-        x_i = self.linear(x_i)
-        x_j = self.linear(x_j)
+#     def message(self, x_i, x_j, pseudo):
+#         weight_k = self.kernel(pseudo).view(-1, self.out_channels, self.out_channels)
+#         weight_op = self.operator_kernel(pseudo).view(-1, self.out_channels, self.out_channels)
+#         x_i = self.linear(x_i)
+#         x_j = self.linear(x_j)
        
-        x_j_k = torch.matmul((x_j-x_i).unsqueeze(1), weight_k).squeeze(1)
-        # x_j_k = weight_k
-        x_j_op = torch.matmul(x_j.unsqueeze(1), weight_op).squeeze(1)
+#         x_j_k = torch.matmul((x_j-x_i).unsqueeze(1), weight_k).squeeze(1)
+#         # x_j_k = weight_k
+#         x_j_op = torch.matmul(x_j.unsqueeze(1), weight_op).squeeze(1)
 
-        if self.retrieve_weights:
-            self.weight_k = weight_k
-            # self.weight_op = weight_op
-        return x_j_k + x_j_op
-        # return x_j_k
+#         if self.retrieve_weights:
+#             self.weight_k = weight_k
+#             # self.weight_op = weight_op
+#         return x_j_k + x_j_op
+#         # return x_j_k
     
-    def update(self, aggr_out, x):
-        return aggr_out + torch.mm(x, self.root_param) + self.bias
+#     def update(self, aggr_out, x):
+#         return aggr_out + torch.mm(x, self.root_param) + self.bias
     
-    def __repr__(self):
-        return '{}({}, {})'.format(self.__class__.__name__, self.in_channels, self.out_channels)
+#     def __repr__(self):
+#         return '{}({}, {})'.format(self.__class__.__name__, self.in_channels, self.out_channels)
 
 
 class TEECNetConv(nn.Module):
@@ -214,8 +215,8 @@ class TEECNetConv(nn.Module):
         super(TEECNetConv, self).__init__()
         self.num_layers = num_layers
 
-        self.fc1 = nn.Linear(in_channels, width)
-        self.kernel = KernelConv(width, width, kernel=PowerSeriesKernel, in_edge=5, num_layers=10, **kwargs)
+        self.fc1 = nn.Linear(in_channels+4, width)
+        self.kernel = PowerSeriesKernel(in_channel=width, out_channel=width, num_layers=5, **kwargs)
         self.fc_out = nn.Linear(width, out_channels)
 
     def get_grid(self, shape, device):
@@ -260,7 +261,6 @@ class TEECNetConv(nn.Module):
 
         return x_list
     
-
     def reconstruct_from_partitions(self, x, x_list, displacement=0):
         # reconstruct the domain from the partitioned subdomains
         num_partitions_dim = int(np.sqrt(len(x_list)))
@@ -283,6 +283,6 @@ class TEECNetConv(nn.Module):
         x = torch.cat((x, grid), dim=-1)
         x = self.fc1(x)
         for i in range(self.num_layers):
-            x = self.kernel(x, None, x)
+            x = self.kernel(x)
         x = self.fc_out(x)
         return x

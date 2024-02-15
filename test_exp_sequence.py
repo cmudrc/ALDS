@@ -18,13 +18,13 @@ def test_exp_sequence():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Set the root directory
-    root = os.path.join(os.getcwd(), 'data')
+    root = os.path.join(os.getcwd(), 'data', 'burgers')
     
     # Set the dataset
     dataset = BurgersDataset(root)
     
     # Set the model
-    model = TEECNetConv(1, 16, 1, num_layers=6, retrieve_weights=False).to(device)
+    model = TEECNetConv(1, 16, 1, num_layers=6, retrieve_weights=False, num_powers=3).to(device)
 
     # Set the loss function
     criterion = torch.nn.MSELoss()
@@ -52,3 +52,11 @@ def test_exp_sequence():
             loss.backward()
             optimizer.step()
             print(f'Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{len(data_loader)}], Loss: {loss.item()}')
+
+    # Save the model
+    torch.save(model.state_dict(), 'model.ckpt')
+
+
+if __name__ == '__main__':
+    test_exp_sequence()
+    print('Done!')

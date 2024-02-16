@@ -115,10 +115,12 @@ class PowerSeriesKernel(nn.Module):
 
     def forward(self, edge_attr):
         x = self.conv0(edge_attr)
+        torch.movedim(x, -1, 1)
         for i in range(self.num_layers):
             # x = self.activation(self.convs[i](x))
             x = self.convs[i](x)
             x = self.norm(x)
+        torch.movedim(x, 1, -1)
         x = self.conv_out(x)
         return x
 

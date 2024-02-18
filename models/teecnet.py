@@ -88,8 +88,10 @@ class PowerSeriesConv(nn.Module):
         # uniform(size, self.root_param)
 
     def forward(self, x):
+        x = torch.movedim(x, -1, 1)
         x_full = None
         x_conv_ = self.conv(x)
+        x_conv_ = torch.movedim(x_conv_, 1, -1)
         for i in range(self.num_powers):
             # x_conv = self.convs[i](x)
             if i == 0:
@@ -108,19 +110,18 @@ class PowerSeriesKernel(nn.Module):
         self.convs = torch.nn.ModuleList()
         for i in range(num_layers):
             self.convs.append(PowerSeriesConv(64, 64, num_powers))
-        self.norm = nn.BatchNorm1d(64)
+        self.norm = nn.BatchNorm2d(64)
 
         self.conv_out = PowerSeriesConv(64, kwargs['out_channel'], num_powers)
         self.activation = activation()
 
-    def forward(self, edge_attr):
-        x = self.conv0(edge_attr)
-        torch.movedim(x, -1, 1)
+    def forward(self, x):
+        x = self.conv0(x)
         for i in range(self.num_layers):
             # x = self.activation(self.convs[i](x))
             x = self.convs[i](x)
             x = self.norm(x)
-        torch.movedim(x, 1, -1)
+        
         x = self.conv_out(x)
         return x
 

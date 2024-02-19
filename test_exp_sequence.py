@@ -3,11 +3,30 @@ import os
 
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
 # import wandb
 
 from dataset.MatDataset import BurgersDataset
 from models.teecnet import TEECNetConv
 
+
+def plot_prediction(window_size, y, y_pred, epoch, batch_idx, folder):
+    xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
+    fig, axs = plt.subplots(1, 3, figsize=(17, 5))
+    axs[0].contourf(xx, yy, y.cpu().detach().numpy().reshape(window_size, window_size), levels=100, cmap='plasma')
+    axs[0].set_title('(a) Ground truth')
+    axs[0].axis('off')
+    axs[1].contourf(xx, yy, y_pred.reshape(window_size, window_size), levels=100, cmap='plasma')
+    axs[1].set_title('(b) Prediction')
+    axs[1].axis('off')
+    axs[2].contourf(xx, yy, np.abs(y.cpu().detach().numpy().reshape(window_size, window_size) - y_pred.reshape(window_size, window_size)), levels=100, cmap='plasma')
+    axs[2].set_title('(c) Absolute difference')
+    axs[2].axis('off')
+
+    # plt.colorbar(axs[2].contourf(xx, yy, np.abs(y.cpu().detach().numpy().reshape(window_size, window_size) - y_pred.reshape(window_size, window_size)), levels=100, cmap='plasma'), ax=axs[2], pad=0.01)
+
+    plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
+    plt.close()
 
 def test_exp_sequence():
     # Set the random seed for reproducibility
@@ -46,22 +65,24 @@ def test_exp_sequence():
         loss_epoch = 0
 
         for i, data in enumerate(data_loader):
-            sub_x_list, sub_y_list = model.get_partition_domain(data[0], mode='train'), model.get_partition_domain(data[1], mode='test')
+            # sub_x_list, sub_y_list = model.get_partition_domain(data[0], mode='train'), model.get_partition_domain(data[1], mode='test')
 
-            for sub_x, sub_y in zip(sub_x_list, sub_y_list):
-                # inputs, labels = data
-                inputs, labels = sub_x.to(device), sub_y.to(device)
-                optimizer.zero_grad()
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
-                        
-                loss_epoch += loss.item()
+            # for sub_x, sub_y in zip(sub_x_list, sub_y_list):
+            inputs, labels = data[0].to(device), data[1].to(device)
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+                    
+            loss_epoch += loss.item()
 
-                loss.backward()
-                optimizer.step()
-                # print(f'Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{len(data_loader)}], Loss: {loss.item()}')
+            loss.backward()
+            optimizer.step()
+            # print(f'Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{len(data_loader)}], Loss: {loss.item()}')
 
-        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss_epoch / (len(data_loader) * len(sub_x_list))}')
+        # print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss_epoch / (len(data_loader) * len(sub_x_list))}')
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss_epoch / len(data_loader)}')
+        plot_prediction(81, labels[0], outputs[0], epoch, i, 'results')
 
     # Save the model
     torch.save(model.state_dict(), 'model.ckpt')

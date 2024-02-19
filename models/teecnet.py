@@ -98,6 +98,7 @@ class PowerSeriesConv(nn.Module):
                 x_full = self.root_param[i] * x_conv_
             else:
                 x_full += self.root_param[i] * torch.pow(self.activation(x_conv_), i)
+        # x_full = torch.movedim(x_full, -1, 1)
         return x_full
     
 
@@ -120,8 +121,9 @@ class PowerSeriesKernel(nn.Module):
         for i in range(self.num_layers):
             # x = self.activation(self.convs[i](x))
             x = self.convs[i](x)
+            x = torch.movedim(x, -1, 1)
             x = self.norm(x)
-        
+            x = torch.movedim(x, 1, -1)
         x = self.conv_out(x)
         return x
 

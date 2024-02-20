@@ -44,7 +44,7 @@ def test_exp_sequence():
     dataset = BurgersDataset(root)
     
     # Set the model
-    model = TEECNetConv(1, 16, 1, num_layers=6, retrieve_weights=False, num_powers=3).to(device)
+    model = TEECNetConv(1, 32, 1, num_layers=6, retrieve_weights=False, num_powers=3).to(device)
 
     # Set the loss function
     criterion = torch.nn.MSELoss()

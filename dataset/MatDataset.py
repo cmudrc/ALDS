@@ -91,10 +91,13 @@ class BurgersDataset(Dataset):
                     for i in range(dset.shape[0] - 1):
                         y = torch.tensor(dset[i], dtype=torch.float)
                         y = torch.sqrt(y[0, :]**2 + y[1, :]**2).unsqueeze(1).reshape(len(x_values), len(y_values), 1)
+                        # normalize the label
+                        y = (y - y.min()) / (y.max() - y.min())
                         # y = np.concatenate((y, pos_x, pos_y), axis=1).reshape(len(x_values), len(y_values), 3)
 
                         x = torch.tensor(dset_l[i], dtype=torch.float)
                         x = torch.sqrt(x[0, :]**2 + x[1, :]**2).unsqueeze(1)
+                        x = (x - x.min()) / (x.max() - x.min())
                         x = np.concatenate((x, pos_x, pos_y), axis=1).reshape(len(x_values), len(y_values), 3)
                         data = [x, y]
 

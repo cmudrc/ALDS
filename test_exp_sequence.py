@@ -4,7 +4,7 @@ import os
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-# import wandb
+import wandb
 
 from dataset.MatDataset import BurgersDataset
 from models.teecnet import TEECNetConv
@@ -25,7 +25,8 @@ def plot_prediction(window_size, y, y_pred, epoch, batch_idx, folder):
 
     # plt.colorbar(axs[2].contourf(xx, yy, np.abs(y.cpu().detach().numpy().reshape(window_size, window_size) - y_pred.reshape(window_size, window_size)), levels=100, cmap='plasma'), ax=axs[2], pad=0.01)
 
-    plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
+    # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
+    wandb.log({'prediction': wandb.Image(plt)})
     plt.close()
 
 def test_exp_sequence():
@@ -81,13 +82,15 @@ def test_exp_sequence():
             # print(f'Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{len(data_loader)}], Loss: {loss.item()}')
 
         # print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss_epoch / (len(data_loader) * len(sub_x_list))}')
-        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss_epoch / len(data_loader)}')
-        plot_prediction(81, labels[0], outputs[0], epoch, i, 'results')
+        # print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss_epoch / len(data_loader)}')
+        wandb.log({'loss': loss_epoch / len(data_loader)})
+        plot_prediction(81, labels[0], outputs[0].detach().cpu().numpy(), epoch, i, 'results')
 
     # Save the model
     torch.save(model.state_dict(), 'model.ckpt')
 
 
 if __name__ == '__main__':
+    wandb.init(project='domain_partition_teecnet', group='testings')
     test_exp_sequence()
     print('Done!')

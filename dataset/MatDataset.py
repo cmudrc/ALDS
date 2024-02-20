@@ -89,12 +89,12 @@ class BurgersDataset(Dataset):
                     
                     # take two sequential time steps and form the input and label for the entire temporal sequence
                     for i in range(dset.shape[0] - 1):
-                        x = torch.tensor(dset[i], dtype=torch.float)
-                        x = torch.sqrt(x[0, :]**2 + x[1, :]**2).unsqueeze(1)
-                        x = np.concatenate((x, pos_x, pos_y), axis=1).reshape(len(x_values), len(y_values), 3)
-
-                        y = torch.tensor(dset_l[i], dtype=torch.float)
+                        y = torch.tensor(dset[i], dtype=torch.float)
                         y = torch.sqrt(y[0, :]**2 + y[1, :]**2).unsqueeze(1)
+                        y = np.concatenate((y, pos_x, pos_y), axis=1).reshape(len(x_values), len(y_values), 3)
+
+                        x = torch.tensor(dset_l[i], dtype=torch.float)
+                        x = torch.sqrt(x[0, :]**2 + x[1, :]**2).unsqueeze(1)
                         data = [x, y]
 
                         data_list.append(data)

@@ -75,7 +75,7 @@ class PowerSeriesConv(nn.Module):
         #     self.convs.append(nn.Linear(in_channel, out_channel))
         # self.conv = nn.Linear(in_channel, out_channel)
         self.conv = nn.Conv2d(in_channel, out_channel, kernel_size=1)
-        self.activation = nn.Tanh()
+        self.activation = nn.ReLU()
         self.root_param = nn.Parameter(torch.Tensor(num_powers, out_channel))
 
         # self.reset_parameters()
@@ -89,7 +89,7 @@ class PowerSeriesConv(nn.Module):
 
     def forward(self, x):
         x = torch.movedim(x, -1, 1)
-        x_full = None
+        # x_full = None
         x_conv_ = self.conv(x)
         x_conv_ = torch.movedim(x_conv_, 1, -1)
         for i in range(self.num_powers):
@@ -100,6 +100,8 @@ class PowerSeriesConv(nn.Module):
                 x_full += self.root_param[i] * torch.pow(self.activation(x_conv_), i)
         # x_full = torch.movedim(x_full, -1, 1)
         return x_full
+        # x_full = torch.sum(self.root_param * torch.pow(self.activation(x_conv_), torch.arange(self.num_powers).to(x.device).view(-1, 1, 1)), dim=0)
+        # return x_full
     
 
 class PowerSeriesKernel(nn.Module):
@@ -221,7 +223,7 @@ class TEECNetConv(nn.Module):
         self.num_layers = num_layers
 
         self.fc1 = nn.Linear(in_channels+4, width)
-        self.kernel = PowerSeriesKernel(in_channel=width, out_channel=width, num_layers=5, **kwargs)
+        self.kernel = PowerSeriesKernel(in_channel=width, out_channel=width, num_layers=num_layers, **kwargs)
         self.fc_out = nn.Linear(width, out_channels)
 
     def get_grid(self, shape, device):

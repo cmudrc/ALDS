@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.nn.init import xavier_uniform_ as reset
+from torch.nn.init import uniform_ as reset
 # import torch_geometric.nn as pyg_nn
 # from torch_geometric.nn.inits import reset, uniform
 import torch.nn.functional as F
@@ -66,6 +66,19 @@ class DenseNet(torch.nn.Module):
         return x
     
 
+class MLP(nn.Module):
+    def __init__(self, in_channels, out_channels, mid_channels):
+        super(MLP, self).__init__()
+        self.mlp1 = nn.Conv2d(in_channels, mid_channels, 1)
+        self.mlp2 = nn.Conv2d(mid_channels, out_channels, 1)
+
+    def forward(self, x):
+        x = self.mlp1(x)
+        x = F.gelu(x)
+        x = self.mlp2(x)
+        return x
+    
+
 class PowerSeriesConv(nn.Module):
     def __init__(self, in_channel, out_channel, num_powers, **kwargs):
         super(PowerSeriesConv, self).__init__()
@@ -75,7 +88,7 @@ class PowerSeriesConv(nn.Module):
         #     self.convs.append(nn.Linear(in_channel, out_channel))
         # self.conv = nn.Linear(in_channel, out_channel)
         self.conv = nn.Conv2d(in_channel, out_channel, kernel_size=1)
-        self.activation = nn.ReLU()
+        self.activation = F.gelu
         self.root_param = nn.Parameter(torch.Tensor(num_powers, out_channel))
 
         # self.reset_parameters()
@@ -105,7 +118,7 @@ class PowerSeriesConv(nn.Module):
     
 
 class PowerSeriesKernel(nn.Module):
-    def __init__(self, num_layers, num_powers, activation=nn.ReLU, **kwargs):
+    def __init__(self, num_layers, num_powers, activation=nn.GELU, **kwargs):
         super(PowerSeriesKernel, self).__init__()
         self.num_layers = num_layers
         self.activation = activation

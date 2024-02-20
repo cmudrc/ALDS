@@ -69,7 +69,7 @@ class BurgersDataset(Dataset):
         with h5py.File(os.path.join(self.raw_dir, self.mesh_file_names[3]), 'r') as f:
             X = f['X'][:]
 
-        for i in range(1000):
+        for i in range(600):
             pos = torch.tensor(X, dtype=torch.float)
             pos_x = pos[:, 0].unsqueeze(1)
             pos_y = pos[:, 1].unsqueeze(1)
@@ -90,11 +90,12 @@ class BurgersDataset(Dataset):
                     # take two sequential time steps and form the input and label for the entire temporal sequence
                     for i in range(dset.shape[0] - 1):
                         y = torch.tensor(dset[i], dtype=torch.float)
-                        y = torch.sqrt(y[0, :]**2 + y[1, :]**2).unsqueeze(1)
-                        y = np.concatenate((y, pos_x, pos_y), axis=1).reshape(len(x_values), len(y_values), 3)
+                        y = torch.sqrt(y[0, :]**2 + y[1, :]**2).unsqueeze(1).reshape(len(x_values), len(y_values), 1)
+                        # y = np.concatenate((y, pos_x, pos_y), axis=1).reshape(len(x_values), len(y_values), 3)
 
                         x = torch.tensor(dset_l[i], dtype=torch.float)
                         x = torch.sqrt(x[0, :]**2 + x[1, :]**2).unsqueeze(1)
+                        x = np.concatenate((x, pos_x, pos_y), axis=1).reshape(len(x_values), len(y_values), 3)
                         data = [x, y]
 
                         data_list.append(data)

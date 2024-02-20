@@ -53,7 +53,7 @@ def test_exp_sequence():
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
     # Set the number of epochs
-    num_epochs = 10
+    num_epochs = 20
 
     # Set the batch size
     batch_size = 32

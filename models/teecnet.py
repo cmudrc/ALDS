@@ -109,13 +109,13 @@ class PowerSeriesKernel(nn.Module):
         super(PowerSeriesKernel, self).__init__()
         self.num_layers = num_layers
         self.activation = activation
-        self.conv0 = PowerSeriesConv(kwargs['in_channel'], 64, num_powers)
+        self.conv0 = PowerSeriesConv(kwargs['in_channel'], 256, num_powers)
         self.convs = torch.nn.ModuleList()
         for i in range(num_layers):
-            self.convs.append(PowerSeriesConv(64, 64, num_powers))
-        self.norm = nn.BatchNorm2d(64)
+            self.convs.append(PowerSeriesConv(256, 256, num_powers))
+        self.norm = nn.BatchNorm2d(256)
 
-        self.conv_out = PowerSeriesConv(64, kwargs['out_channel'], num_powers)
+        self.conv_out = PowerSeriesConv(256, kwargs['out_channel'], num_powers)
         self.activation = activation()
 
     def forward(self, x):
@@ -289,7 +289,7 @@ class TEECNetConv(nn.Module):
         grid = self.get_grid(x.shape, x.device)
         x = torch.cat((x, grid), dim=-1)
         x = self.fc1(x)
-        for i in range(self.num_layers):
-            x = self.kernel(x)
+        # for i in range(self.num_layers):
+        x = self.kernel(x)
         x = self.fc_out(x)
         return x

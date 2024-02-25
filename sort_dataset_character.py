@@ -14,7 +14,8 @@ sub_x_total = []
 sub_y_total = []
 
 for data in dataset:
-    sub_x_list, sub_y_list = model.get_partition_domain(data[0], mode='train'), model.get_partition_domain(data[1], mode='test')
+    data = torch.tensor(data)
+    sub_x_list, sub_y_list = model.get_partition_domain(torch.from_numpy(data[0]), mode='train'), model.get_partition_domain(torch.from_numpy(data[1]), mode='test')
     sub_x_total.append(sub_x_list)
     sub_y_total.append(sub_y_list)
     for sub_x, sub_y in zip(sub_x_list, sub_y_list):

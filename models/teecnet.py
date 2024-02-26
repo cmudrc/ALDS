@@ -238,6 +238,10 @@ class TEECNetConv(nn.Module):
         self.fc1 = nn.Linear(in_channels+4, width)
         self.kernel = PowerSeriesKernel(in_channel=width, out_channel=width, num_layers=num_layers, **kwargs)
         self.fc_out = nn.Linear(width, out_channels)
+        try:
+            self.sub_size = kwargs['sub_size']
+        except KeyError:
+            self.sub_size = 9
 
     def get_grid(self, shape, device):
         batchsize, size_x, size_y = shape[0], shape[1], shape[2]

@@ -69,7 +69,7 @@ class BurgersDataset(Dataset):
         with h5py.File(os.path.join(self.raw_dir, self.mesh_file_names[3]), 'r') as f:
             X = f['X'][:]
 
-        for i in range(600):
+        for i in range(10):
             pos = torch.tensor(X, dtype=torch.float)
             pos_x = pos[:, 0].unsqueeze(1)
             pos_y = pos[:, 1].unsqueeze(1)

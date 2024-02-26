@@ -1,11 +1,11 @@
-from dataset.MatDataset import BurgersDatasetWhole
+from dataset.MatDataset import BurgersDataset
 import torch
 from models.teecnet import TEECNetConv
 import matplotlib.pyplot as plt
+import tqdm
 
-
-model = TEECNetConv(1, 32, 1, num_layers=6, retrieve_weights=False, num_powers=3)
-dataset = BurgersDatasetWhole(root='data/burgers')
+model = TEECNetConv(1, 32, 1, num_layers=6, retrieve_weights=False, num_powers=3, sub_size=9)
+dataset = BurgersDataset(root='data/burgers')
 
 fft_x_list = []
 fft_y_list = []
@@ -13,9 +13,10 @@ fft_y_list = []
 sub_x_total = []
 sub_y_total = []
 
-for data in dataset:
-    data = torch.tensor(data)
-    sub_x_list, sub_y_list = model.get_partition_domain(torch.from_numpy(data[0]), mode='train'), model.get_partition_domain(torch.from_numpy(data[1]), mode='test')
+for data in tqdm.tqdm(dataset):
+    data[0] = torch.tensor(data[0], dtype=torch.float)
+    data[1] = torch.tensor(data[1], dtype=torch.float)
+    sub_x_list, sub_y_list = model.get_partition_domain(data[0], mode='train'), model.get_partition_domain(data[1], mode='test')
     sub_x_total.append(sub_x_list)
     sub_y_total.append(sub_y_list)
     for sub_x, sub_y in zip(sub_x_list, sub_y_list):

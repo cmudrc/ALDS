@@ -5,6 +5,8 @@ import torch
 import numpy as np
 import scipy.io
 import h5py
+import pyJHTDB
+from pyJHTDB import libJHTDB
 import sklearn.metrics
 # from torch_geometric.data import Data, InMemoryDataset
 from torch.utils.data import Dataset
@@ -177,3 +179,22 @@ class BurgersDatasetWhole(Dataset):
     
     def __getitem__(self, idx):
         return self.data[idx]
+
+
+class JHTDB(Dataset):
+    # def initialize_JHTDB():
+    #     """
+    #     Initialize the JHTDB object
+    #     """
+    #     # Parameters for the data download
+    #     lJHTDB = libJHTDB()
+    #     lJHTDB.initialize()
+    #     lJHTDB.add_token('edu.cmu.zedaxu-f374fe6b')
+    #     return lJHTDB
+    def __init__(self, root, tstart, tend, fields, dataset):
+        self.root = root
+        self.tstart = tstart
+        self.tend = tend
+        self.fields = fields
+        self.dataset = dataset
+        self.data = self.process()

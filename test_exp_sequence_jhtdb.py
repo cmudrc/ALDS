@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import wandb
 
-from dataset.MatDataset import BurgersDataset, initialize_JHTDB
+from dataset.MatDataset import JHTDB
 from models.teecnet import TEECNetConv
 
 
@@ -38,10 +38,10 @@ def test_exp_sequence():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Set the root directory
-    root = os.path.join(os.getcwd(), 'data', 'burgers')
+    root = os.path.join(os.getcwd(), 'data', 'jhtdb')
     
     # Set the dataset
-    dataset = BurgersDataset(root)
+    dataset = JHTDB(root, tstart=0, tend=100, fields='u', dataset='isotropic1024coarse')
     
     # Set the model
     model = TEECNetConv(1, 32, 1, num_layers=6, retrieve_weights=False, num_powers=3).to(device)

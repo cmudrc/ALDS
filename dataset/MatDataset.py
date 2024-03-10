@@ -147,40 +147,7 @@ class BurgersDatasetWhole(Dataset):
         # load mesh
         with h5py.File(os.path.join(self.raw_dir, self.mesh_file_names[3]), 'r') as f:
             X = f['X'][:]
-
-        for i in range(400):
-            pos = torch.tensor(X, dtype=torch.float)
-            pos_x = pos[:, 0].unsqueeze(1)
-            pos_y = pos[:, 1].unsqueeze(1)
-            
-            x_values = np.unique(pos_x)
-            y_values = np.unique(pos_y)
-
-            # print('res: {}, i: {}'.format(res, i))
-            with h5py.File(os.path.join(self.raw_dir, self.raw_file_names[3]), 'r') as f:  
-                data_array_group = f['{}'.format(i)]
-                
-                dset = data_array_group['u'][:]
-                
-                # take two sequential time steps and form the input and label for the entire temporal sequence
-                for i in range(dset.shape[0] - 1):
-                    x = torch.tensor(dset[i], dtype=torch.float).unsqueeze(1)
-                    x = np.concatenate((x, pos_x, pos_y), axis=1).reshape(len(x_values), len(y_values), 3)
-                    x_next = torch.tensor(dset[i + 1], dtype=torch.float).reshape(len(x_values), len(y_values), 1)
-
-                    data = [x, x_next]
-
-                    data_list.append(data)
-
-        torch.save(data_list, self.processed_paths[0])
-
-    def __len__(self):
-        return len(self.data)
-    
-    def __getitem__(self, idx):
-        return self.data[idx]
-
-
+a
 class JHTDB(Dataset):
     # def initialize_JHTDB():
     #     """
@@ -198,3 +165,25 @@ class JHTDB(Dataset):
         self.fields = fields
         self.dataset = dataset
         self.data = self.process()
+
+        self.jhtdb = pyJHTDB.libJHTDB()
+        self.jhtdb.initialize()
+        self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
+
+    def _download(self):
+        os.makedirs(self.root, exist_ok=True)
+
+        result = self.jhtdb.getbigCutout(
+            tstart=self.tstart,
+            tend=self.tend,
+            field=self.fields,
+            dataset=self.dataset,
+            start=np.array([0, 0, 512], dtype=np.int),
+            end=np.array([1024, 1024, 512], dtype=np.int),
+            step=np.array([1, 1, 1], dtype=np.int),
+            filename=os.path.join(self.root, 'data')
+        )
+
+    def _process(self):
+        data = h5py.File(os.path.join(self.root, 'data'), 'r')
+        

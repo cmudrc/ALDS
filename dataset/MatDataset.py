@@ -147,7 +147,7 @@ class BurgersDatasetWhole(Dataset):
         # load mesh
         with h5py.File(os.path.join(self.raw_dir, self.mesh_file_names[3]), 'r') as f:
             X = f['X'][:]
-a
+
 class JHTDB(Dataset):
     # def initialize_JHTDB():
     #     """
@@ -174,10 +174,11 @@ class JHTDB(Dataset):
         os.makedirs(self.root, exist_ok=True)
 
         result = self.jhtdb.getbigCutout(
-            tstart=self.tstart,
-            tend=self.tend,
-            field=self.fields,
-            dataset=self.dataset,
+            t_start=self.tstart,
+            t_end=self.tend,
+            t_step=1,
+            fields=self.fields,
+            data_set=self.dataset,
             start=np.array([0, 0, 512], dtype=np.int),
             end=np.array([1024, 1024, 512], dtype=np.int),
             step=np.array([1, 1, 1], dtype=np.int),
@@ -186,4 +187,11 @@ class JHTDB(Dataset):
 
     def _process(self):
         data = h5py.File(os.path.join(self.root, 'data'), 'r')
+
+    def process(self):
+        if not os.path.exists(os.path.join(self.root, 'data')):
+            self._download()
+        if not os.path.exists(os.path.join(self.root, 'processed')):
+            self._process()
+        
         

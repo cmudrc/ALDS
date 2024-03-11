@@ -164,11 +164,11 @@ class JHTDB(Dataset):
         self.tend = tend
         self.fields = fields
         self.dataset = dataset
-        self.data = self.process()
-
         self.jhtdb = pyJHTDB.libJHTDB()
         self.jhtdb.initialize()
         self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
+
+        self.data = self.process()
 
     def _download(self):
         os.makedirs(self.root, exist_ok=True)

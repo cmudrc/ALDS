@@ -4,13 +4,17 @@ os.environ['HDF5_DISABLE_VERSION_CHECK'] = '2' # Only add this for TRACE to work
 import torch
 import numpy as np
 import scipy.io
+import ctypes
 import h5py
+import shutil
 import pyJHTDB
 from pyJHTDB import libJHTDB
 import sklearn.metrics
 # from torch_geometric.data import Data, InMemoryDataset
 from torch.utils.data import Dataset
 import torch.nn as nn
+# from paraview.simple import *
+# from dolfin import *
 
 
 # class MatDataset(InMemoryDataset):
@@ -158,20 +162,22 @@ class JHTDB(Dataset):
     #     lJHTDB.initialize()
     #     lJHTDB.add_token('edu.cmu.zedaxu-f374fe6b')
     #     return lJHTDB
-    def __init__(self, root, tstart, tend, fields, dataset):
+    def __init__(self, root, tstart, tend, fields, dataset, down_sample_rate=3):
         self.root = root
         self.tstart = tstart
         self.tend = tend
         self.fields = fields
+        self.down_sample_rate = down_sample_rate
         self.dataset = dataset
         self.jhtdb = pyJHTDB.libJHTDB()
         self.jhtdb.initialize()
+        self.jhtdb.lib.turblibSetExitOnError(ctypes.c_int(0))
         self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
 
         self.data = self.process()
 
     def _download(self):
-        os.makedirs(self.root, exist_ok=True)
+        os.makedirs(os.path.join(self.root, 'raw'), exist_ok=True)
 
         result = self.jhtdb.getbigCutout(
             t_start=self.tstart,
@@ -179,19 +185,53 @@ class JHTDB(Dataset):
             t_step=1,
             fields=self.fields,
             data_set=self.dataset,
-            start=np.array([0, 0, 512], dtype=np.int),
+            start=np.array([1, 1, 512], dtype=np.int),
             end=np.array([1024, 1024, 512], dtype=np.int),
             step=np.array([1, 1, 1], dtype=np.int),
-            filename=os.path.join(self.root, 'data')
+            filename='data',
         )
 
+        self.jhtdb.finalize()
+
+        shutil.move('data.xmf', os.path.join(self.root, 'raw'))
+        shutil.move('data.h5', os.path.join(self.root, 'raw'))
+
+        print(result.shape)
+
     def _process(self):
-        data = h5py.File(os.path.join(self.root, 'data'), 'r')
+        os.makedirs(os.path.join(self.root, 'processed'), exist_ok=True)
+        u_list = []
+        with h5py.File(os.path.join(self.root, 'raw', 'data.h5'), 'r') as f:
+            for i in range(self.tend - self.tstart+1):
+                u_idx = str(i+1).rjust(4, '0')
+                u = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
+                u_label = torch.tensor(u[0, :, :, :])
+                u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
+                # pool the u_label to create low resolution u_input
+                u_input = self._pool(u_label, 3)
+                u_list.append([u_input, u_label])
+
+        torch.save(u_list, os.path.join(self.root, 'processed', 'data.pt'))
+
+    def _pool(self, u, factor):
+        # average pooling on the input u, maintaining the same shape
+        # pad the domain u so that the pooled u has the same shape as the original u
+        u = torch.nn.functional.pad(u, (int((factor-1)/2), int((factor-1)/2), int((factor-1)/2), int((factor-1)/2)))
+        u = u.unsqueeze(0).unsqueeze(0)
+        u = torch.nn.functional.avg_pool2d(u, factor, stride=1).squeeze(0).squeeze(0)
+        return u 
 
     def process(self):
-        if not os.path.exists(os.path.join(self.root, 'data')):
+        if not (os.path.exists(os.path.join(self.root, 'raw', 'data.h5')) or os.path.exists(os.path.join(self.root, 'processed', 'data.pt'))):
             self._download()
-        if not os.path.exists(os.path.join(self.root, 'processed')):
+        if not os.path.exists(os.path.join(self.root, 'processed', 'data.pt')):
             self._process()
+        return torch.load(os.path.join(self.root, 'processed', 'data.pt'))
         
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        return self.data[idx]
+    
         

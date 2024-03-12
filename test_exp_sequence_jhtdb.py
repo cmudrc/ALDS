@@ -41,7 +41,7 @@ def test_exp_sequence():
     root = os.path.join(os.getcwd(), 'data', 'jhtdb')
     
     # Set the dataset
-    dataset = JHTDB(root, tstart=0, tend=100, fields='u', dataset='isotropic1024coarse')
+    dataset = JHTDB(root, tstart=1, tend=100, fields='u', dataset='isotropic1024coarse')
     
     # Set the model
     model = TEECNetConv(1, 32, 1, num_layers=6, retrieve_weights=False, num_powers=3).to(device)
@@ -91,6 +91,6 @@ def test_exp_sequence():
 
 
 if __name__ == '__main__':
-    wandb.init(project='domain_partition_teecnet', group='testings')
+    # wandb.init(project='domain_partition_teecnet', group='testings')
     test_exp_sequence()
     print('Done!')

@@ -235,7 +235,7 @@ class TEECNetConv(nn.Module):
         super(TEECNetConv, self).__init__()
         self.num_layers = num_layers
 
-        self.fc1 = nn.Linear(in_channels+4, width)
+        self.fc1 = nn.Linear(in_channels+2, width)
         self.kernel = PowerSeriesKernel(in_channel=width, out_channel=width, num_layers=num_layers, **kwargs)
         self.fc_out = nn.Linear(width, out_channels)
         try:

@@ -66,25 +66,33 @@ def test_exp_sequence():
         loss_epoch = 0
 
         for i, data in enumerate(data_loader):
-            # sub_x_list, sub_y_list = model.get_partition_domain(data[0], mode='train'), model.get_partition_domain(data[1], mode='test')
+            sub_x_list, sub_y_list = model.get_partition_domain(data[0], mode='train'), model.get_partition_domain(data[1], mode='test')
+            # output_list = []
+            for sub_x, sub_y in zip(sub_x_list, sub_y_list):
+                sub_x, sub_y = sub_x.to(device), sub_y.to(device)
 
-            # for sub_x, sub_y in zip(sub_x_list, sub_y_list):
-            inputs, labels = data[0].to(device), data[1].to(device)
-            inputs, labels = inputs.to(device), labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-                    
-            loss_epoch += loss.item()
+                # Forward pass
+                outputs = model(sub_x)
+                # output_list.append(outputs)
 
-            loss.backward()
-            optimizer.step()
-            # print(f'Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{len(data_loader)}], Loss: {loss.item()}')
+                # Compute the loss
+                loss = criterion(outputs, sub_y)
 
-        # print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss_epoch / (len(data_loader) * len(sub_x_list))}')
+                # Backward pass
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                # Update the loss
+                loss_epoch += loss.item()
+
+            # Print the loss
+            # print(f'Epoch [{epoch + 1}/{num_epochs}], Batch [{i + 1}/{len(data_loader)}], Loss: {loss.item()}')
+
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss_epoch / (len(data_loader) * len(sub_x_list))}')
         # print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss_epoch / len(data_loader)}')
-        wandb.log({'loss': loss_epoch / len(data_loader)})
-        plot_prediction(81, labels[0], outputs[0].detach().cpu().numpy(), epoch, i, 'results')
+        wandb.log({'loss': loss_epoch / len(data_loader) * len(sub_x_list)})
+        plot_prediction(81, sub_y, outputs, epoch, i, 'test')
 
     # Save the model
     torch.save(model.state_dict(), 'model.ckpt')

@@ -209,7 +209,7 @@ class JHTDB(Dataset):
                 u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
                 # pool the u_label to create low resolution u_input
                 u_input = self._pool(u_label, 3)
-                u_list.append([u_input, u_label])
+                u_list.append([u_input.unsqueeze(-1), u_label.unsqueeze(-1)])
 
         torch.save(u_list, os.path.join(self.root, 'processed', 'data.pt'))
 

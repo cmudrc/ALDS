@@ -27,7 +27,7 @@ def plot_prediction(window_size, y, y_pred, epoch, batch_idx, folder):
     plt.close()
 
 
-def compute_tke_spectrum(u, v, lx, ly):
+def compute_tke_spectrum(u, lx, ly):
     """
     Given velocity fields u and v, computes the turbulent kinetic energy spectrum. The function computes in three steps:
     1. Compute velocity spectrum with fft, returns uf, vf.
@@ -42,14 +42,13 @@ def compute_tke_spectrum(u, v, lx, ly):
 
     nt = nx * ny
     # Compute velocity spectrum
-    uf = torch.fft.fftn(u) / nt
-    vf = torch.fft.fftn(v) / nt
+    uf = torch.fft.fftn(u, norm='ortho')
 
     # Compute the point-wise turbulent kinetic energy
-    Ef = 0.5 * (uf * torch.conj(uf) + vf * torch.conj(vf)).real
+    Ef = 0.5 * (uf * torch.conj(uf)).real
     kx = 2 * torch.pi / lx 
     ky = 2 * torch.pi / ly
-    knorm = (kx + ky) / 2
+    knorm = np.sqrt(kx ** 2 + ky ** 2)
     kxmax = nx / 2
     kymax = ny / 2
     wave_numbers = knorm * torch.arange(0, nx)
@@ -62,33 +61,43 @@ def compute_tke_spectrum(u, v, lx, ly):
             rky = j
             if j > kymax:
                 rky = rky - ny
-            rk = torch.sqrt(rkx * rkx + rky * rky)
+            rk = np.sqrt(rkx * rkx + rky * rky)
             k_index = int(np.round(rk))
             tke_spectrum[k_index] += Ef[i, j]
-    return tke_spectrum, wave_numbers
+    # k = torch.fft.fftfreq(nx, lx / nx)
+
+    # plt.loglog(wave_numbers[1:], tke_spectrum[1:])
+    # plt.savefig('tke_spectrum.png')
+    return tke_spectrum[1:], wave_numbers[1:]
 
 
-model = TEECNetConv(1, 32, 1, num_layers=6, retrieve_weights=False, num_powers=3, sub_size=8)
+model = TEECNetConv(1, 32, 1, num_layers=6, retrieve_weights=False, num_powers=3, sub_size=64)
 # dataset = BurgersDataset(root='data/burgers')
 dataset = JHTDB(root='data/jhtdb', tstart=1, tend=100, fields='u', dataset='isotropic1024coarse')
 
 fft_x_list = []
 fft_y_list = []
 
-sub_x_total = []
-sub_y_total = []
+wave_numbers_x_list = []
+wave_numbers_y_list = []
 
-for data in tqdm.tqdm(dataset):
+for data in tqdm.tqdm(dataset[:5]):
     sub_x_list, sub_y_list = model.get_partition_domain(data[0], mode='train'), model.get_partition_domain(data[1], mode='test')
     # sub_x_total.append(sub_x_list)
     # sub_y_total.append(sub_y_list)
+    # tke_spectrum_x, wave_numbers_x = compute_tke_spectrum(data[0][:, :, 0].squeeze(0), 1 / 1024, 1 / 1024)
+    # tke_spectrum_y, wave_numbers_y = compute_tke_spectrum(data[1][:, :, 0].squeeze(0), 1 / 1024, 1 / 1024)
     for sub_x, sub_y in zip(sub_x_list, sub_y_list):
         # calculate fft of sub_x and sub_y
-        sub_tke_spectrum_x, sub_wave_numbers_x = compute_tke_spectrum(sub_x[0], sub_x[1], 1, 1)
-        sub_tke_spectrum_y, sub_wave_numbers_y = compute_tke_spectrum(sub_y[0], sub_y[1], 1, 1)
-        fft_x_list.append(sub_wave_numbers_x[sub_tke_spectrum_x.argmax()])
-        fft_y_list.append(sub_wave_numbers_y[sub_tke_spectrum_y.argmax()])
+        sub_tke_spectrum_x, sub_wave_numbers_x = compute_tke_spectrum(sub_x[:, :, :, 0].squeeze(0), 1 / 1024, 1 / 1024)
+        sub_tke_spectrum_y, sub_wave_numbers_y = compute_tke_spectrum(sub_y[:, :, :, 0].squeeze(0), 1 / 1024, 1 / 1024)
+        
+        fft_x_list.append(sub_tke_spectrum_x)
+        fft_y_list.append(sub_tke_spectrum_y)
 
+        wave_numbers_x_list.append(sub_wave_numbers_x)
+        wave_numbers_y_list.append(sub_wave_numbers_y)
+        
 # plot the distribution of the dominant frequencies of the input and output
 plt.hist(fft_x_list, bins=100, alpha=0.5, label='input')
 plt.hist(fft_y_list, bins=100, alpha=0.5, label='output')
@@ -99,4 +108,10 @@ plt.savefig('dominant_frequencies.png')
 # torch.save(sub_x_total, 'sub_x_total.pt')
 # torch.save(sub_y_total, 'sub_y_total.pt')
 torch.save(fft_x_list, 'fft_x_list.pt')
+del fft_x_list
 torch.save(fft_y_list, 'fft_y_list.pt')
+del fft_y_list
+torch.save(wave_numbers_x_list, 'wave_numbers_x_list.pt')
+del wave_numbers_x_list
+torch.save(wave_numbers_y_list, 'wave_numbers_y_list.pt')
+del wave_numbers_y_list

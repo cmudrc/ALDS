@@ -53,7 +53,7 @@ def test_exp_sequence():
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
     # Set the number of epochs
-    epochs = 1000
+    epochs = 100
 
     train_loader = torch.utils.data.DataLoader(dataset, batch_size=128, shuffle=True)
     
@@ -83,7 +83,9 @@ def test_exp_sequence():
                 z = model.reparameterize(mu, logvar)
                 y_pred = model.decode(z)
                 plot_prediction(64, y.cpu(), y_pred.cpu(), epoch, batch_idx, 'results')
-
+                # save model
+                torch.save(model.state_dict(), 'logs/models/TBVAE_model.pth')
+                
 
 if __name__ == '__main__':
     wandb.init(project='domain_partition_scheduler', group='testings')

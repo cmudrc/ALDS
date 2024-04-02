@@ -342,7 +342,7 @@ class JHTDB_ICML(Dataset):
         os.makedirs(os.path.join(self.root, 'processed'), exist_ok=True)
         u_list = []
         with h5py.File(os.path.join(self.root, 'raw', 'data.h5'), 'r') as f:
-            for i in range(self.tend - self.tstart+1):
+            for i in range(self.tend - self.tstart):
                 u_idx = str(i+1).rjust(4, '0')
                 u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
                 u_input = torch.tensor(u_input[0, :, :, :])

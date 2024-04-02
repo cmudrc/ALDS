@@ -10,19 +10,12 @@ import numpy as np
 import os
 
 
-def plot_prediction(window_size, y, y_pred, epoch, batch_idx, folder):
+def plot_prediction(window_size, y, epoch, batch_idx, folder):
     xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
-    fig, axs = plt.subplots(1, 3, figsize=(17, 5))
-    axs[0].contourf(xx, yy, y.cpu().detach().numpy().reshape(window_size, window_size), levels=100, cmap='plasma')
-    axs[0].set_title('(a) Ground truth')
-    axs[0].axis('off')
-    axs[1].contourf(xx, yy, y_pred.reshape(window_size, window_size), levels=100, cmap='plasma')
-    axs[1].set_title('(b) Prediction')
-    axs[1].axis('off')
-    axs[2].contourf(xx, yy, np.abs(y.cpu().detach().numpy().reshape(window_size, window_size) - y_pred.reshape(window_size, window_size)), levels=100, cmap='plasma')
-    axs[2].set_title('(c) Absolute difference')
-    axs[2].axis('off')
-
+    fig = plt.figure()
+    plt.contourf(xx, yy, y.cpu().detach().numpy().reshape(window_size, window_size), levels=100, cmap='plasma')
+    # plt.set_title('(a) Ground truth')
+    plt.axis('off')
     # plt.colorbar(axs[2].contourf(xx, yy, np.abs(y.cpu().detach().numpy().reshape(window_size, window_size) - y_pred.reshape(window_size, window_size)), levels=100, cmap='plasma'), ax=axs[2], pad=0.01)
 
     plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
@@ -59,6 +52,12 @@ plt.show()
 # save figure and latent space
 np.save('logs/latent_space.npy', latent_space)
 np.save('logs/cluster_labels.npy', kmeans.labels_)
+
+# plot data sample at each cluster
+for i in range(8):
+    idx = np.where(kmeans.labels_ == i)[0]
+    data = dataset[idx[0]][0]
+    plot_prediction(64, data, 0, i, 'logs/cluster_samples')
 
 # save figure
 fig.savefig('logs/latent_space.png')

@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import wandb
 
-from dataset.MatDataset import JHTDB
+from dataset.MatDataset import JHTDB, JHTDB_ICML
 from models.scheduler import TBVAE
 
 
@@ -38,10 +38,11 @@ def test_exp_sequence():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Set the root directory
-    root = os.path.join(os.getcwd(), 'data', 'jhtdb')
+    root = os.path.join(os.getcwd(), 'data', 'jhtdb_icml')
     
     # Set the dataset
-    dataset = JHTDB(root, tstart=1, tend=500, fields='u', dataset='isotropic1024coarse', partition=True, sub_size=64)
+    # dataset = JHTDB(root, tstart=1, tend=500, fields='u', dataset='isotropic1024coarse', partition=True, sub_size=64)
+    dataset = JHTDB_ICML(root, tstart=1, tend=1000, fields='u', dataset='isotropic1024coarse')
     
     # Set the model
     model = TBVAE(input_dim=1, latent_dim=32, hidden_dim=256, num_classes=1, num_layers=3, dropout=0.5).to(device)
@@ -85,7 +86,7 @@ def test_exp_sequence():
                 plot_prediction(64, y.cpu(), y_pred.cpu(), epoch, batch_idx, 'results')
                 # save model
                 torch.save(model.state_dict(), 'logs/models/TBVAE_model.pth')
-                
+
 
 if __name__ == '__main__':
     wandb.init(project='domain_partition_scheduler', group='testings')

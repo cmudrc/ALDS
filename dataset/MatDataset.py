@@ -291,4 +291,137 @@ class JHTDB(Dataset):
     def __getitem__(self, idx):
         return self.data[idx]
     
+
+
+class JHTDB_ICML(Dataset):
+    # def initialize_JHTDB():
+    #     """
+    #     Initialize the JHTDB object
+    #     """
+    #     # Parameters for the data download
+    #     lJHTDB = libJHTDB()
+    #     lJHTDB.initialize()
+    #     lJHTDB.add_token('edu.cmu.zedaxu-f374fe6b')
+    #     return lJHTDB
+    def __init__(self, root, tstart, tend, fields, dataset):
+        self.root = root
+        self.tstart = tstart
+        self.tend = tend
+        self.fields = fields
+        self.dataset = dataset
+        self.jhtdb = pyJHTDB.libJHTDB()
+        self.jhtdb.initialize()
+        self.jhtdb.lib.turblibSetExitOnError(ctypes.c_int(0))
+        self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
+
+        self.data = self.process()
+
+    def _download(self):
+        os.makedirs(os.path.join(self.root, 'raw'), exist_ok=True)
+
+        result = self.jhtdb.getbigCutout(
+            t_start=self.tstart,
+            t_end=self.tend,
+            t_step=1,
+            fields=self.fields,
+            data_set=self.dataset,
+            start=np.array([1, 1, 512], dtype=np.int),
+            end=np.array([81, 81, 512], dtype=np.int),
+            step=np.array([1, 1, 1], dtype=np.int),
+            filename='data',
+        )
+
+        self.jhtdb.finalize()
+
+        shutil.move('data.xmf', os.path.join(self.root, 'raw'))
+        shutil.move('data.h5', os.path.join(self.root, 'raw'))
+
+        print(result.shape)
+
+    def _process(self):
+        os.makedirs(os.path.join(self.root, 'processed'), exist_ok=True)
+        u_list = []
+        with h5py.File(os.path.join(self.root, 'raw', 'data.h5'), 'r') as f:
+            for i in range(self.tend - self.tstart+1):
+                u_idx = str(i+1).rjust(4, '0')
+                u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
+                u_input = torch.tensor(u_input[0, :, :, :])
+                u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
+                # u_label at the next time step
+                u_label_idx = str(i+2).rjust(4, '0')
+                u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
+                u_label = torch.tensor(u_label[0, :, :, :])
+                u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
+
+                u_list.append([u_input, u_label])
+
+        torch.save(u_list, os.path.join(self.root, 'processed', 'data.pt'))
+
+    def symmetric_padding(self, x, mode):
+        # pad the domain symmetrically to make it divisible by sub_size
+        # get pad size
+        pad_size = (x.shape[1] % self.sub_size) // 2 + 1
+        x = F.pad(x, (0, 0, pad_size, pad_size, pad_size, pad_size))
+        # print(x[0, :, :, 0])
+        if mode == 'train':
+            # add one dimension to the tensor x, with 0 in the padded region and 1 in the original region
+            x_pad_idx = torch.ones((x.shape[0], x.shape[1], 1))
+            x_pad_idx[:pad_size, :, :] = 0
+            x_pad_idx[-pad_size:, :, :] = 0
+            x_pad_idx[:, -pad_size:, :] = 0
+            x_pad_idx[:, :pad_size, :] = 0
+            x = torch.cat((x, x_pad_idx), dim=-1)
+            return x, pad_size
+        elif mode == 'test':    
+            return x, pad_size
+
+    def get_partition_domain(self, x, mode, displacement=0):
+        # pad the domain symmetrically to make it divisible by sub_size
+        x, pad_size = self.symmetric_padding(x, mode)
+        # partition the domain into num_partitions subdomains of the same size
+        x_list = []
+        num_partitions_dim = x.shape[1] // self.sub_size
+
+        for i in range(num_partitions_dim):
+            for j in range(num_partitions_dim):
+                x_list.append(x[i*self.sub_size:(i+1)*self.sub_size, j*self.sub_size:(j+1)*self.sub_size, :])
+        return x_list
+    
+    def reconstruct_from_partitions(self, x, x_list, displacement=0):
+        # reconstruct the domain from the partitioned subdomains
+        num_partitions_dim = int(np.sqrt(len(x_list)))
+        x, pad_size = self.symmetric_padding(x, mode='test')
+        x = torch.zeros_like(x[:, 1:-1, 1:-1, 0].unsqueeze(-1))
+        # if the domain can be fully partitioned into subdomains of the same size
+        # if len(x_list) == num_partitions_dim**2:
+        for i in range(num_partitions_dim):
+            for j in range(num_partitions_dim):
+                x[:, i:i+self.sub_size-2, j:j+self.sub_size-2, :] = x_list[i*num_partitions_dim + j][:, 1:-1, 1:-1, :]
+
+        if pad_size == 1:
+            return x
+        else:
+            x = x[:, pad_size-1:-pad_size+1, pad_size-1:-pad_size+1, :]
+            return x
+
+    def _pool(self, u, factor):
+        # average pooling on the input u, maintaining the same shape
+        # pad the domain u so that the pooled u has the same shape as the original u
+        u = torch.nn.functional.pad(u, (int((factor-1)/2), int((factor-1)/2), int((factor-1)/2), int((factor-1)/2)))
+        u = u.unsqueeze(0).unsqueeze(0)
+        u = torch.nn.functional.avg_pool2d(u, factor, stride=1).squeeze(0).squeeze(0)
+        return u 
+
+    def process(self):
+        if not (os.path.exists(os.path.join(self.root, 'raw', 'data.h5')) or os.path.exists(os.path.join(self.root, 'processed', 'data.pt'))):
+            self._download()
+        if not os.path.exists(os.path.join(self.root, 'processed', 'data.pt')):
+            self._process()
+        return torch.load(os.path.join(self.root, 'processed', 'data.pt'))
+        
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        return self.data[idx]
         

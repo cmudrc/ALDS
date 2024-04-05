@@ -1,6 +1,6 @@
 from dataset.MatDataset import BurgersDataset, JHTDB
 import torch
-from models.teecnet import TEECNetConv
+from models.model import TEECNetConv
 from models.scheduler import TBVAE
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA

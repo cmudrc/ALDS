@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import wandb
 
 from dataset.MatDataset import BurgersDataset, initialize_JHTDB
-from models.teecnet import TEECNetConv
+from models.model import TEECNetConv
 
 
 def plot_prediction(window_size, y, y_pred, epoch, batch_idx, folder):

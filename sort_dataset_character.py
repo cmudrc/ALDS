@@ -1,6 +1,6 @@
 from dataset.MatDataset import BurgersDataset, JHTDB
 import torch
-from models.teecnet import TEECNetConv
+from models.model import TEECNetConv
 import matplotlib.pyplot as plt
 import tqdm
 import numpy as np

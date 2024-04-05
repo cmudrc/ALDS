@@ -413,11 +413,11 @@ class JHTDB_ICML(Dataset):
             x = x[:, pad_size-1:-pad_size+1, pad_size-1:-pad_size+1, :]
             return x
 
-    def process(self):
+    def process(self, flag_partition=False):
         if not (os.path.exists(os.path.join(self.root, 'raw', 'data.h5')) or os.path.exists(os.path.join(self.root, 'processed', 'data.pt'))):
             self._download()
         if not os.path.exists(os.path.join(self.root, 'processed', 'data.pt')):
-            self._process()
+            self._process(flag_partition)
         return torch.load(os.path.join(self.root, 'processed', 'data.pt'))
         
     def __len__(self):

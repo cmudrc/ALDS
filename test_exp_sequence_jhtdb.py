@@ -8,7 +8,7 @@ import seaborn as sns
 import wandb
 import yaml
 
-from dataset.MatDataset import JHTDB
+from dataset.MatDataset import JHTDB_ICML
 from models.scheduler import PartitionScheduler
 from models.encoder import PCAEncoder
 from models.classifier import KMeansClassifier
@@ -22,7 +22,7 @@ def load_yaml(path):
 
 if __name__ == '__main__':
     train_config = load_yaml('configs/train_config.yaml')
-    dataset = JHTDB(root='data/jhtdb', tstart=1, tend=100, fields='u', dataset='isotropic1024coarse', partition=True, sub_size=64)
+    dataset = JHTDB_ICML(root='data/jhtdb_icml', tstart=1, tend=500, fields='u', dataset='isotropic1024coarse', partition=True, sub_size=64)
     encoder = PCAEncoder(n_components=8)
     classifier = KMeansClassifier(n_clusters=8)
     model = FNO2d(8, 8, 36)

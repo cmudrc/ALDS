@@ -58,7 +58,7 @@ class PartitionScheduler():
                 model = model.to(device)
             else:
                 model = self.model.to(device)
-            model.train()
+
             criterion = torch.nn.MSELoss()
             optimizer = torch.optim.Adam(model.parameters(), lr=train_config['lr'])
             scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=train_config['step_size'], gamma=train_config['gamma'])
@@ -99,8 +99,8 @@ class PartitionScheduler():
 
                         # plot one sample from the validation set
                         x, y = val_dataset[0]
-                        x, y = x.to(device), y.to(device)
-                        pred = model(x)
+                        x = x.unsqueeze(0).to(device)
+                        pred = model(x).squeeze(0)
                         self._plot_prediction(64, y.cpu(), pred.cpu(), epoch, batch_idx, 'results')
                         torch.save(model.state_dict(), f'logs/models/partition_{i}_epoch_{epoch}.pth')
                 

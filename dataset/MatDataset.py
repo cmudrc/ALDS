@@ -426,3 +426,24 @@ class JHTDB_ICML(Dataset):
     def __getitem__(self, idx):
         return self.data[idx]
         
+
+class Sub_JHTDB(Dataset):
+    '''
+    Includes a subset of the JHTDB dataset given the indices of the data
+    '''
+    def __init__(self, root, indices):
+        self.root = root
+        # verify that JHTDB data is correctly processed
+        if not os.path.exists(os.path.join(self.root, 'processed', 'data.pt')):
+            raise ValueError('JHTDB data is not processed yet')
+        self.indices = indices
+
+        self.data = torch.load(os.path.join(self.root, 'processed', 'data.pt'))
+        self.data = [self.data[i] for i in self.indices]
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        return self.data[idx]
+    

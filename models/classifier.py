@@ -18,7 +18,7 @@ class Classifier:
 class KMeansClassifier(Classifier):
     def __init__(self, n_clusters):
         super(KMeansClassifier, self).__init__(n_clusters)
-        self.kmeans = KMeans(n_clusters=n_clusters, random_state=0)
+        self.kmeans = KMeans(n_clusters=n_clusters, random_state=0, n_init='auto')
 
     def train(self, data):
         self.kmeans.fit(data)

@@ -9,6 +9,7 @@ from torch.nn.init import uniform_ as reset
 # from torch_geometric.nn.inits import reset, uniform
 import torch.nn.functional as F
 import wandb
+from dataset.MatDataset import Sub_JHTDB
 
 
 class PartitionScheduler():
@@ -39,7 +40,7 @@ class PartitionScheduler():
         for i in range(num_partitions):
             idx = np.where(labels == i)[0]
             # print(f'Partition {i}: {len(idx)} samples')
-            subsets.append([self.dataset[i] for i in idx])
+            subsets.append(Sub_JHTDB(self.dataset.root, idx))
 
         return subsets
 
@@ -71,6 +72,7 @@ class PartitionScheduler():
                 loss_epoch = 0
                 for batch_idx, (x, y) in enumerate(train_loader):
                     x, y = x.to(device), y.to(device)
+                    print(x.shape, y.shape)
                     optimizer.zero_grad()
                     pred = model(x)
                     loss = criterion(pred, y)

@@ -1,5 +1,5 @@
 import os
-os.environ['HDF5_DISABLE_VERSION_CHECK'] = '2' # Only add this for TRACE to work, comment out for other cases! 
+# os.environ['HDF5_DISABLE_VERSION_CHECK'] = '2' # Only add this for TRACE to work, comment out for other cases! 
 
 import torch
 import numpy as np
@@ -303,7 +303,7 @@ class JHTDB_ICML(Dataset):
     #     lJHTDB.initialize()
     #     lJHTDB.add_token('edu.cmu.zedaxu-f374fe6b')
     #     return lJHTDB
-    def __init__(self, root, tstart, tend, fields, dataset):
+    def __init__(self, root, tstart, tend, fields, dataset, partition=False, **kwargs):
         self.root = root
         self.tstart = tstart
         self.tend = tend
@@ -313,8 +313,11 @@ class JHTDB_ICML(Dataset):
         self.jhtdb.initialize()
         self.jhtdb.lib.turblibSetExitOnError(ctypes.c_int(0))
         self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
+        
+        if partition:
+            self.sub_size = kwargs['sub_size']
 
-        self.data = self.process()
+        self.data = self.process(partition)
 
     def _download(self):
         os.makedirs(os.path.join(self.root, 'raw'), exist_ok=True)
@@ -326,7 +329,7 @@ class JHTDB_ICML(Dataset):
             fields=self.fields,
             data_set=self.dataset,
             start=np.array([1, 1, 512], dtype=np.int),
-            end=np.array([81, 81, 512], dtype=np.int),
+            end=np.array([1024, 1024, 512], dtype=np.int),
             step=np.array([1, 1, 1], dtype=np.int),
             filename='data',
         )
@@ -338,7 +341,7 @@ class JHTDB_ICML(Dataset):
 
         print(result.shape)
 
-    def _process(self):
+    def _process(self, flag_partition=False):
         os.makedirs(os.path.join(self.root, 'processed'), exist_ok=True)
         u_list = []
         with h5py.File(os.path.join(self.root, 'raw', 'data.h5'), 'r') as f:
@@ -353,7 +356,13 @@ class JHTDB_ICML(Dataset):
                 u_label = torch.tensor(u_label[0, :, :, :])
                 u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
 
-                u_list.append([u_input, u_label])
+                if flag_partition:
+                    u_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
+                    u_label_list = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
+                    for u_input, u_label in zip(u_input_list, u_label_list):
+                        u_list.append([u_input, u_label])
+                else:
+                    u_list.append([u_input, u_label])
 
         torch.save(u_list, os.path.join(self.root, 'processed', 'data.pt'))
 
@@ -403,14 +412,6 @@ class JHTDB_ICML(Dataset):
         else:
             x = x[:, pad_size-1:-pad_size+1, pad_size-1:-pad_size+1, :]
             return x
-
-    def _pool(self, u, factor):
-        # average pooling on the input u, maintaining the same shape
-        # pad the domain u so that the pooled u has the same shape as the original u
-        u = torch.nn.functional.pad(u, (int((factor-1)/2), int((factor-1)/2), int((factor-1)/2), int((factor-1)/2)))
-        u = u.unsqueeze(0).unsqueeze(0)
-        u = torch.nn.functional.avg_pool2d(u, factor, stride=1).squeeze(0).squeeze(0)
-        return u 
 
     def process(self):
         if not (os.path.exists(os.path.join(self.root, 'raw', 'data.h5')) or os.path.exists(os.path.join(self.root, 'processed', 'data.pt'))):

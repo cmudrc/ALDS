@@ -72,7 +72,7 @@ class PartitionScheduler():
                 loss_epoch = 0
                 for batch_idx, (x, y) in enumerate(train_loader):
                     x, y = x.to(device), y.to(device)
-                    print(x.shape, y.shape)
+                    # print(x.shape, y.shape)
                     optimizer.zero_grad()
                     pred = model(x)
                     loss = criterion(pred, y)
@@ -116,7 +116,15 @@ class PartitionScheduler():
         fig = plt.figure()
         plt.contourf(xx, yy, y.cpu().detach().numpy().reshape(window_size, window_size), levels=100, cmap='plasma')
         plt.axis('off')
-        plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
+        # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
+        wandb.log({'true': wandb.Image(plt)})
+        plt.close()
+
+        fig = plt.figure()
+        plt.contourf(xx, yy, y_pred.cpu().detach().numpy().reshape(window_size, window_size), levels=100, cmap='plasma')
+        plt.axis('off')
+        # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}_pred.png'))
+        wandb.log({'pred': wandb.Image(plt)})
         plt.close()
 
     def train(self, train_config, subset_idx=None):

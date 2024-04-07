@@ -171,7 +171,7 @@ class PartitionScheduler():
 
         return predictions
     
-    def _predict_sub_model(self, model, x, device):
+    def _predict_sub_model(model, x, device):
         model = model.to(device)
         model.eval()
         with torch.no_grad():

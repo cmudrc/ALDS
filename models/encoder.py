@@ -109,8 +109,8 @@ class PCAEncoder(Encoder):
     
 
 class VAEEncoder(Encoder):
-    def __init__(self, model, **kwargs):
-        super(VAEEncoder, self).__init__(kwargs['n_components'])
+    def __init__(self, n_components, **kwargs):
+        super(VAEEncoder, self).__init__(n_components)
         self.model = TBVAE(input_dim=kwargs['input_dim'], latent_dim=kwargs['n_components'], hidden_dim=128, num_layers=kwargs['num_layers'], dropout=kwargs['dropout'])
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

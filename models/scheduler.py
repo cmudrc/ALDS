@@ -10,6 +10,7 @@ from torch.nn.init import uniform_ as reset
 import torch.nn.functional as F
 import wandb
 from dataset.MatDataset import Sub_JHTDB
+from concurrent.futures import ThreadPoolExecutor
 
 
 class PartitionScheduler():
@@ -45,6 +46,7 @@ class PartitionScheduler():
         return subsets
 
     def _train_sub_models(self, train_config, device, subset_idx=None, is_parallel=False):
+        models = []
         if subset_idx is not None:
             subsets = self.subsets[subset_idx]
         else:
@@ -104,12 +106,17 @@ class PartitionScheduler():
                         x = x.unsqueeze(0).to(device)
                         pred = model(x).squeeze(0)
                         self._plot_prediction(64, y.cpu(), pred.cpu(), epoch, batch_idx, 'results')
-                        torch.save(model.state_dict(), f'logs/models/partition_{i}_epoch_{epoch}.pth')
+                        # torch.save(model.state_dict(), f'logs/models/partition_{i}_epoch_{epoch}.pth')
                 
                 # register the model in a model collection
-                os.makedirs('logs/models/collection_{}'.format(subset_idx), exist_ok=True)
-                model_scripted = torch.jit.script(model)
-                model_scripted.save('logs/models/collection_{}/partition_{}.pt'.format(subset_idx, i, epoch))
+                os.makedirs('logs/models/collection_{}'.format('fno_jhtdb'), exist_ok=True)
+                # model_scripted = torch.jit.script(model)
+                # model_scripted.save('logs/models/collection_{}/partition_{}.pt'.format(subset_idx, i, epoch))
+                torch.save(model.state_dict(), 'logs/models/collection_{}/partition_{}.pth'.format('fno_jhtdb', i))
+                models.append(model)
+
+            wandb.finish()
+        self.models = models
 
     def _plot_prediction(self, window_size, y, y_pred, epoch, batch_idx, folder):
         xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
@@ -136,4 +143,37 @@ class PartitionScheduler():
             print('Using single GPU')
             self._train_sub_models(train_config, torch.device('cuda'), subset_idx, is_parallel=False)
 
-            
+    def predict(self, x):
+        # see if self.models is available
+        if not hasattr(self, 'models'):
+            raise ValueError('Models are not trained yet')
+        latent_space = self.encoder.get_latent_space(x)
+        labels = self.classifier.cluster(latent_space)
+        predictions = torch.zeros_like(x)
+        # get all subsets
+        x_subsets = []
+        subsets_idx_mask = []
+        for i in range(self.num_partitions):
+            idx = np.where(labels == i)[0]
+            x_subsets.append(x[idx])
+            subsets_idx_mask.append(idx)
+        if torch.cuda.device_count() > 1:
+            print(f'Using {torch.cuda.device_count()} GPUs')
+            # assign model and corresponding data to different gpus and predict in parallel
+            with ThreadPoolExecutor(max_workers=torch.cuda.device_count()) as executor:
+                predictions = torch.cat(list(executor.map(self._predict_sub_model, self.models, x_subsets, [torch.device(f'cuda:{i}') for i in range(torch.cuda.device_count())])), dim=0)
+        else:
+            print('Using single GPU')
+            for i, model in enumerate(self.models):
+                idx = subsets_idx_mask[i]
+                pred = self._predict_sub_model(model, x_subsets[i], torch.device('cuda'))
+                predictions[idx] = pred
+
+        return predictions
+    
+    def _predict_sub_model(self, model, x, device):
+        model = model.to(device)
+        model.eval()
+        with torch.no_grad():
+            pred = model(x.to(device))
+        return pred

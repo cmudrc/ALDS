@@ -168,7 +168,7 @@ class PartitionScheduler():
         # see if self.models is available
         if not hasattr(self, 'models'):
             raise ValueError('Models are not trained yet')
-        latent_space = self.encoder.get_latent_space(x)
+        latent_space = self.encoder.get_latent(x)
         labels = self.classifier.cluster(latent_space)
         predictions = torch.zeros_like(x)
         # get all subsets
@@ -188,11 +188,11 @@ class PartitionScheduler():
             for i, model in enumerate(self.models):
                 idx = subsets_idx_mask[i]
                 pred = self._predict_sub_model(model, x_subsets[i], torch.device('cuda'))
-                predictions[idx] = pred
+                predictions[idx] = pred.cpu()
 
         return predictions
     
-    def _predict_sub_model(model, x, device):
+    def _predict_sub_model(self, model, x, device):
         model = model.to(device)
         model.eval()
         with torch.no_grad():

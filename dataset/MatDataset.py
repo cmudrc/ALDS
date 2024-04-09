@@ -401,12 +401,12 @@ class JHTDB_ICML(Dataset):
         # reconstruct the domain from the partitioned subdomains
         num_partitions_dim = int(np.sqrt(len(x_list)))
         x, pad_size = self.symmetric_padding(x, mode='test')
-        x = torch.zeros_like(x.unsqueeze(-1))
+        x = torch.zeros_like(x)
         # if the domain can be fully partitioned into subdomains of the same size
         # if len(x_list) == num_partitions_dim**2:
         for i in range(num_partitions_dim):
             for j in range(num_partitions_dim):
-                x[:, i*self.sub_size:(i+1)*self.sub_size, j*self.sub_size:(j+1)*self.sub_size, :] = x_list[i*num_partitions_dim + j]
+                x[:, i*self.sub_size:(i+1)*self.sub_size, j*self.sub_size:(j+1)*self.sub_size, :] = x_list[i*num_partitions_dim + j].unsqueeze(0)
 
         if pad_size == 1:
             return x

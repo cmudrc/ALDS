@@ -115,6 +115,13 @@ class PCAEncoder(Encoder):
         latent_space = self.model.transform(np.array(data_space))
         return latent_space
     
+    def get_latent(self, x):
+        data_space = []
+        for sub_x in x:
+            data_space.append(sub_x.cpu().detach().numpy().reshape(-1))
+        latent_space = self.model.transform(np.array(data_space))
+        return latent_space
+    
     def load_model(self, path):
         self.model = load(os.path.join(path, 'pca_encoder.joblib'))
     

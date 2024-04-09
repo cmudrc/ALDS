@@ -309,6 +309,7 @@ class JHTDB_ICML(Dataset):
         self.tend = tend
         self.fields = fields
         self.dataset = dataset
+        self.flag_partition = partition
         self.jhtdb = pyJHTDB.libJHTDB()
         self.jhtdb.initialize()
         self.jhtdb.lib.turblibSetExitOnError(ctypes.c_int(0))
@@ -400,12 +401,12 @@ class JHTDB_ICML(Dataset):
         # reconstruct the domain from the partitioned subdomains
         num_partitions_dim = int(np.sqrt(len(x_list)))
         x, pad_size = self.symmetric_padding(x, mode='test')
-        x = torch.zeros_like(x[:, 1:-1, 1:-1, 0].unsqueeze(-1))
+        x = torch.zeros_like(x.unsqueeze(-1))
         # if the domain can be fully partitioned into subdomains of the same size
         # if len(x_list) == num_partitions_dim**2:
         for i in range(num_partitions_dim):
             for j in range(num_partitions_dim):
-                x[:, i:i+self.sub_size-2, j:j+self.sub_size-2, :] = x_list[i*num_partitions_dim + j][:, 1:-1, 1:-1, :]
+                x[:, i*self.sub_size:(i+1)*self.sub_size, j*self.sub_size:(j+1)*self.sub_size, :] = x_list[i*num_partitions_dim + j]
 
         if pad_size == 1:
             return x
@@ -425,6 +426,24 @@ class JHTDB_ICML(Dataset):
     
     def __getitem__(self, idx):
         return self.data[idx]
+    
+    def get_one_full_sample(self, idx):
+        if not self.flag_partition:
+            return self.data[idx]
+        else:
+            with h5py.File(os.path.join(self.root, 'raw', 'data.h5'), 'r') as f:
+                u_idx = str(idx+1).rjust(4, '0')
+                u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
+                u_input = torch.tensor(u_input[0, :, :, :])
+                u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
+                # u_label at the next time step
+                u_label_idx = str(idx+2).rjust(4, '0')
+                u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
+                u_label = torch.tensor(u_label[0, :, :, :])
+                u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
+                u_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
+                u_label_list = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
+                return u_input.unsqueeze(-1), u_input_list, u_label_list
         
 
 class Sub_JHTDB(Dataset):

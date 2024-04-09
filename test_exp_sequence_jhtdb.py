@@ -23,5 +23,15 @@ if __name__ == '__main__':
     classifier = KMeansClassifier(n_clusters=8)
     model = FNO2d(8, 8, 36)
 
-    scheduler = PartitionScheduler(8, dataset, encoder, classifier, model)
+    scheduler = PartitionScheduler('fno_jhtdb', 8, dataset, encoder, classifier, model)
     scheduler.train(train_config)
+
+    ###################################################################################################
+    # Test
+    ###################################################################################################
+    scheduler = PartitionScheduler('fno_jhtdb', 8, dataset, encoder, classifier, model, train=False)
+    x, sub_x_list, sub_y_list = dataset.get_one_full_sample(100)
+    pred_y_list = scheduler.predict(sub_x_list)
+    
+    pred_y = dataset.reconstruct_from_partitions(x, pred_y_list)
+    sub_y = dataset.reconstruct_from_partitions(x, sub_y_list)

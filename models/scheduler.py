@@ -8,33 +8,44 @@ from torch.nn.init import uniform_ as reset
 # import torch_geometric.nn as pyg_nn
 # from torch_geometric.nn.inits import reset, uniform
 import torch.nn.functional as F
+from joblib import dump, load
 import wandb
 from dataset.MatDataset import Sub_JHTDB
 from concurrent.futures import ThreadPoolExecutor
 
 
 class PartitionScheduler():
-    def __init__(self, num_partitons, dataset, encoder, classifier, model=None):
+    def __init__(self, exp_name, num_partitons, dataset, encoder, classifier, model=None, train=True):
         super(PartitionScheduler, self).__init__()
+        self.name = exp_name
         self.num_partitions = num_partitons
         self.encoder = encoder
         self.classifier = classifier
         self.model = model
         self.dataset = dataset
 
-        self.subsets = self._train_partitions(num_partitons)
+        self.subsets = self._train_partitions(num_partitons, train)
 
     def get_sub_dataset(self):
         return self.subsets
     
-    def _train_partitions(self, num_partitions):
-        # train the encoder on the dataset
-        self.encoder.train(self.dataset)
-        latent_space = self.encoder.get_latent_space(self.dataset)
+    def _train_partitions(self, num_partitions, train=True):
+        if train:
+            # train the encoder on the dataset
+            self.encoder.train(self.dataset, save_model=True, path='logs/models/collection_{}'.format(self.name))
+            # dump(self.encoder.model, 'logs/models/collection_{}/encoder.joblib'.format(self.name))
+            latent_space = self.encoder.get_latent_space(self.dataset)
 
-        # cluster the latent space into different groups
-        self.classifier.train(latent_space)
-        labels = self.classifier.cluster(latent_space)
+            # cluster the latent space into different groups
+            self.classifier.train(latent_space, save_model=True, path='logs/models/collection_{}'.format(self.name))
+            # dump(self.classifier.model, 'logs/models/collection_{}/classifier.joblib'.format(self.name))
+            labels = self.classifier.cluster(latent_space)
+        else:
+            # load the pre-trained encoder and classifier
+            self.encoder.load_model('logs/models/collection_{}'.format(self.name))
+            self.classifier.load_model('logs/models/collection_{}'.format(self.name))
+            latent_space = self.encoder.get_latent_space(self.dataset)
+            labels = self.classifier.cluster(latent_space)
 
         # partition the dataset into different subsets
         subsets = []

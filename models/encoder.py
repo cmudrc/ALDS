@@ -1,7 +1,9 @@
+import os
 from sklearn.decomposition import PCA
 import torch
 import torch.nn as nn
 import numpy as np
+from joblib import dump, load
 
 
 class Encoder():
@@ -92,12 +94,18 @@ class PCAEncoder(Encoder):
         super(PCAEncoder, self).__init__(n_components)
         self.model = PCA(n_components=n_components)
 
-    def train(self, dataset):
+    def train(self, dataset, save_model=False, path=None):
         data_space = []
         for data in dataset:
             x, y = data
             data_space.append(x.cpu().detach().numpy().reshape(-1))
         self.model.fit(np.array(data_space))
+        # dump(self.model, 'logs/models/collection_fno_jhtdb/pca_encoder.joblib')
+        if save_model:
+            self._save_model(path)
+
+    def _save_model(self, path):
+        dump(self.model, os.path.join(path, 'pca_encoder.joblib'))
 
     def get_latent_space(self, dataset):
         data_space = []
@@ -106,6 +114,9 @@ class PCAEncoder(Encoder):
             data_space.append(x.cpu().detach().numpy().reshape(-1))
         latent_space = self.model.transform(np.array(data_space))
         return latent_space
+    
+    def load_model(self, path):
+        self.model = load(os.path.join(path, 'pca_encoder.joblib'))
     
 
 class VAEEncoder(Encoder):

@@ -24,10 +24,11 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
         pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
         sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
 
-        plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/idx_{idx}.svg')
+        plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/idx_{idx}.pdf')
 
         r2_scores.append(r2_score(sub_y.flatten().cpu().detach().numpy(), pred_y.flatten().cpu().detach().numpy()))
         # save the prediction
+        os.makedirs(f'logs/raw_data/{exp_name}', exist_ok=True)
         torch.save(pred_y, f'logs/raw_data/{exp_name}/pred_idx_{idx}.pth')
         torch.save(sub_y, f'logs/raw_data/{exp_name}/gt_idx_{idx}.pth')
 
@@ -64,11 +65,11 @@ if __name__ == '__main__':
     if exp_config['save_mode'] == 'wandb':
         wandb.init(project='ALDS', name=exp_name)
 
-        if run_mode == 'train':
-            train_ALDS(exp_name, encoder, classifier, model, dataset, n_clusters, train_config)
-            print('Training done!')
-        elif run_mode == 'pred':
-            idxs = exp_config['idxs']
-            save_mode = exp_config['save_mode']
-            pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, n_clusters, save_mode)
-            print('Prediction done!')
+    if run_mode == 'train':
+        train_ALDS(exp_name, encoder, classifier, model, dataset, n_clusters, train_config)
+        print('Training done!')
+    elif run_mode == 'pred':
+        idxs = exp_config['idxs']
+        save_mode = exp_config['save_mode']
+        pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, n_clusters, save_mode)
+        print('Prediction done!')

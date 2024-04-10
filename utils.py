@@ -17,18 +17,22 @@ def load_yaml(path):
 
 
 def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
-    window_size = y.shape[-1]
+    window_size = y.shape[1]
     xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
     fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-    axs[0].contourf(xx, yy, y.cpu().detach().numpy().reshape(window_size, window_size), levels=100, cmap='plasma')
+    axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size, window_size), levels=100, cmap='plasma')
     axs[0].set_title('(a) Ground truth')
     axs[0].axis('off')
     axs[1].contourf(xx, yy, y_pred.reshape(window_size, window_size), levels=100, cmap='plasma')
     axs[1].set_title('(b) Prediction')
     axs[1].axis('off')
-    axs[2].contourf(xx, yy, np.abs(y.cpu().detach().numpy().reshape(window_size, window_size) - y_pred.reshape(window_size, window_size)), levels=100, cmap='plasma')
+    axs[2].contourf(xx, yy, np.abs(y.reshape(window_size, window_size) - y_pred.reshape(window_size, window_size)) / y.reshape(window_size, window_size), levels=100, cmap='plasma')
     axs[2].set_title('(c) Absolute difference by percentage')
     axs[2].axis('off')
+    # add colorbar and labels to the rightmost plot
+    cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
+    cbar.set_label('Absolute difference')
+    plt.tight_layout()
 
     # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
     if save_mode == 'wandb':
@@ -37,7 +41,7 @@ def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
         plt.show()
     elif save_mode == 'save':
         os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
-        plt.savefig(kwargs['path'], format='svg', dpi=1200)
+        plt.savefig(kwargs['path'], format='pdf', dpi=1200)
     plt.close()
 
 

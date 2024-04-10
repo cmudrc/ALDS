@@ -90,7 +90,7 @@ class TBVAE(nn.Module):
 
 
 class PCAEncoder(Encoder):
-    def __init__(self, n_components):
+    def __init__(self, n_components, **kwargs):
         super(PCAEncoder, self).__init__(n_components)
         self.model = PCA(n_components=n_components)
 

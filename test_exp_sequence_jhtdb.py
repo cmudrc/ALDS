@@ -26,9 +26,15 @@ def plot_prediction(y, y_pred):
     axs[1].contourf(xx, yy, y_pred.reshape(window_size, window_size), levels=100, cmap='plasma')
     axs[1].set_title('(b) Prediction')
     axs[1].axis('off')
-    axs[2].contourf(xx, yy, np.abs(y.reshape(window_size, window_size) - y_pred.reshape(window_size, window_size)), levels=100, cmap='plasma')
+    # plot absolute difference as a percentage of the ground truth
+    axs[2].contourf(xx, yy, np.abs(y.reshape(window_size, window_size) - y_pred.reshape(window_size, window_size)) / y.reshape(window_size, window_size), levels=100, cmap='plasma')
     axs[2].set_title('(c) Absolute difference')
     axs[2].axis('off')
+    # add colorbar and labels to the rightmost plot
+    cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
+    cbar.set_label('Absolute difference')
+
+    plt.tight_layout()
 
     # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
     plt.savefig('logs/jhtdb_icml.png')

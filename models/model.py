@@ -366,7 +366,7 @@ class MLP(nn.Module):
         return x
 
 class FNO2d(nn.Module):
-    def __init__(self, modes1, modes2,  width):
+    def __init__(self, modes1, modes2,  width, **kwargs):
         super(FNO2d, self).__init__()
 
         """

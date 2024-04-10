@@ -190,10 +190,12 @@ class PartitionScheduler():
                 pred = self._predict_sub_model(model, x_subsets[i], torch.device('cuda'))
                 predictions[idx] = pred.cpu()
 
-        return predictions
+        return predictions, labels
     
     def _predict_sub_model(self, model, x, device):
         model = model.to(device)
+        x = x.to(device)
+        print(f'Predicting on {device}, with tensor on {x.device}')
         model.eval()
         with torch.no_grad():
             pred = model(x.to(device))

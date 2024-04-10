@@ -19,12 +19,13 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
     for idx in idxs:
         x, sub_x_list, sub_y_list = dataset.get_one_full_sample(idx)
         sub_x_tensor = torch.stack(sub_x_list)
-        pred_y_list = scheduler.predict(sub_x_tensor)
+        pred_y_list, labels = scheduler.predict(sub_x_tensor)
         
         pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
         sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
 
         plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/idx_{idx}.pdf')
+        plot_partition(sub_y, pred_y, labels, kwargs['sub_size'], save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_idx_{idx}.pdf')
 
         r2_scores.append(r2_score(sub_y.flatten().cpu().detach().numpy(), pred_y.flatten().cpu().detach().numpy()))
         # save the prediction
@@ -71,5 +72,5 @@ if __name__ == '__main__':
     elif run_mode == 'pred':
         idxs = exp_config['idxs']
         save_mode = exp_config['save_mode']
-        pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, n_clusters, save_mode)
+        pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, n_clusters, save_mode=save_mode, sub_size=exp_config['sub_size'])
         print('Prediction done!')

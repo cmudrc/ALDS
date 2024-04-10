@@ -7,6 +7,7 @@ from models.scheduler import *
 from dataset.MatDataset import *
 import yaml
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import wandb
 
 
@@ -23,14 +24,14 @@ def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
     axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size, window_size), levels=100, cmap='plasma')
     axs[0].set_title('(a) Ground truth')
     axs[0].axis('off')
-    axs[1].contourf(xx, yy, y_pred.reshape(window_size, window_size), levels=100, cmap='plasma')
+    axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
     axs[1].set_title('(b) Prediction')
     axs[1].axis('off')
-    axs[2].contourf(xx, yy, np.abs(y.reshape(window_size, window_size) - y_pred.reshape(window_size, window_size)) / y.reshape(window_size, window_size), levels=100, cmap='plasma')
+    axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
     axs[2].set_title('(c) Absolute difference by percentage')
     axs[2].axis('off')
     # add colorbar and labels to the rightmost plot
-    cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
+    cbar = plt.colorbar(axs[2].collections[0], ax=axs, orientation='vertical')
     cbar.set_label('Absolute difference')
     plt.tight_layout()
 
@@ -44,6 +45,51 @@ def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
         plt.savefig(kwargs['path'], format='pdf', dpi=1200)
     plt.close()
 
+
+def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
+    # cover a colored mask on the prediction indicating the partition
+    window_size = y_pred.shape[1]
+    xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
+    fig, axs = plt.subplots(1, 2, figsize=(13, 5))
+
+    colormap = plt.cm.tab20
+
+    mask = np.zeros((window_size, window_size))
+    for i in range(int(window_size / sub_size)):
+        for j in range(int(window_size / sub_size)):
+            mask[i * sub_size:(i + 1) * sub_size, j * sub_size:(j + 1) * sub_size] = labels[i * int(window_size / sub_size) + j]
+
+    axs[0].contourf(xx, yy, y_pred.cpu().detach().reshape(window_size, window_size), levels=100, cmap='plasma')
+    axs[0].set_title('(a) Prediction')
+    axs[0].axis('off')
+    # axs[0].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
+    for i in range(int(window_size / sub_size)):
+        for j in range(int(window_size / sub_size)):
+            rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none', alpha=0.2)
+            axs[0].add_patch(rect)
+
+    axs[1].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
+    axs[1].set_title('(b) Absolute difference by percentage')
+    axs[1].axis('off')
+    # axs[1].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
+    for i in range(int(window_size / sub_size)):
+        for j in range(int(window_size / sub_size)):
+            rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none', alpha=0.2)
+            axs[1].add_patch(rect)
+    
+    # add colorbar and labels to the rightmost plot
+    cbar = plt.colorbar(axs[1].collections[0], ax=axs[1], orientation='vertical')
+    cbar.set_label('Absolute difference')
+    # plt.tight_layout()
+
+    if save_mode == 'wandb':
+        wandb.log({'prediction': wandb.Image(plt)})
+    elif save_mode == 'plt':
+        plt.show()
+    elif save_mode == 'save':
+        os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
+        plt.savefig(kwargs['path'], format='pdf', dpi=1200)
+    
 
 def init_encoder(type, n_components, **kwargs):
     if type == 'pca':

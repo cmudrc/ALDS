@@ -54,7 +54,7 @@ def train_DS(exp_name, model, dataset, train_config, **kwargs):
             plot_prediction(y[0].cpu(), y_pred[0].cpu(), save_mode='wandb')
 
     os.makedirs(f'logs/models/collection_{exp_name}', exist_ok=True)
-    torch.save(model, f'logs/models/collection_{exp_name}/model.pth')
+    torch.save(model.state_dict(), f'logs/models/collection_{exp_name}/model.pth')
 
 
 def pred_DS(idxs, exp_name, model, dataset, save_mode, **kwargs):

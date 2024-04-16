@@ -11,7 +11,8 @@ import torch.nn.functional as F
 from joblib import dump, load
 import wandb
 from dataset.MatDataset import Sub_JHTDB
-from concurrent.futures import ThreadPoolExecutor
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 
 
 class PartitionScheduler():
@@ -26,7 +27,7 @@ class PartitionScheduler():
 
         self.subsets = self._train_partitions(num_partitons, train)
         if not train:
-            self.models = [model for model in self._load_models()]
+            self.models = self._load_models()
 
     def get_sub_dataset(self):
         return self.subsets
@@ -35,7 +36,7 @@ class PartitionScheduler():
         models = []
         for i in range(self.num_partitions):
             model = self.model
-            model.load_state_dict(torch.load('logs/models/collection_{}/partition_{}.pth'.format(self.name, i)))
+            model.load_state_dict(torch.load('logs/models/collection_{}/partition_{}.pth'.format(self.name, i), map_location=torch.device('cpu')))
             models.append(model)
         return models
     
@@ -126,7 +127,8 @@ class PartitionScheduler():
                         x, y = val_dataset[0]
                         x = x.unsqueeze(0).to(device)
                         pred = model(x).squeeze(0)
-                        self._plot_prediction(64, y.cpu(), pred.cpu(), epoch, batch_idx, 'results')
+                        self._plot_prediction(y, pred)
+                        
                         # torch.save(model.state_dict(), f'logs/models/partition_{i}_epoch_{epoch}.pth')
                 
                 # register the model in a model collection
@@ -139,21 +141,25 @@ class PartitionScheduler():
             wandb.finish()
         self.models = models
 
-    def _plot_prediction(self, window_size, y, y_pred, epoch, batch_idx, folder):
+    def _plot_prediction(self, y, y_pred):
+        window_size = y.shape[1]
         xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
-        fig = plt.figure()
-        plt.contourf(xx, yy, y.cpu().detach().numpy().reshape(window_size, window_size), levels=100, cmap='plasma')
-        plt.axis('off')
-        # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
-        wandb.log({'true': wandb.Image(plt)})
-        plt.close()
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+        axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size, window_size), levels=100, cmap='plasma')
+        axs[0].set_title('(a) Ground truth')
+        axs[0].axis('off')
+        axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
+        axs[1].set_title('(b) Prediction')
+        axs[1].axis('off')
+        axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
+        axs[2].set_title('(c) Absolute difference by percentage')
+        axs[2].axis('off')
+        # add colorbar and labels to the rightmost plot
+        cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
+        cbar.set_label('Absolute difference')
+        plt.tight_layout()
 
-        fig = plt.figure()
-        plt.contourf(xx, yy, y_pred.cpu().detach().numpy().reshape(window_size, window_size), levels=100, cmap='plasma')
-        plt.axis('off')
-        # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}_pred.png'))
-        wandb.log({'pred': wandb.Image(plt)})
-        plt.close()
+        wandb.log({'prediction': wandb.Image(plt)})
 
     def train(self, train_config, subset_idx=None):
         # for parallel training on multiple gpus
@@ -178,25 +184,83 @@ class PartitionScheduler():
             idx = np.where(labels == i)[0]
             x_subsets.append(x[idx])
             subsets_idx_mask.append(idx)
+        # print(len(x_subsets), len(subsets_idx_mask))
         if torch.cuda.device_count() > 1:
             print(f'Using {torch.cuda.device_count()} GPUs')
+            device_list = [torch.device(f'cuda:{i}') for i in range(torch.cuda.device_count())]          
             # assign model and corresponding data to different gpus and predict in parallel
-            with ThreadPoolExecutor(max_workers=torch.cuda.device_count()) as executor:
-                predictions = torch.cat(list(executor.map(self._predict_sub_model, self.models, x_subsets, [torch.device(f'cuda:{i}') for i in range(torch.cuda.device_count())])), dim=0)
+            for num_execs in range(self.num_partitions // torch.cuda.device_count() + 1):
+                exec_list = []
+                with ThreadPoolExecutor(max_workers=torch.cuda.device_count()) as executor:
+                    for i, device in enumerate(device_list):
+                        idx = num_execs * torch.cuda.device_count() + i
+                        if idx >= self.num_partitions:
+                            break 
+                        cur_subset = x_subsets[idx].detach().clone().to(device)
+                        # print(cur_subset.device)
+                        cur_model = self.models[idx].to(device)
+                        # print(cur_model.mlp0.mlp1.weight.device)
+                        pred = executor.submit(self._predict_sub_model, cur_model, cur_subset, idx)
+                        exec_list.append(pred)
+                    
+                    print(f'Waiting for {len(exec_list)} threads to finish')
+                    # batch_idx = num_execs * torch.cuda.device_count()
+                    complete_pred, incomplete_pred = wait(exec_list, return_when=ALL_COMPLETED)
+                    for pred in complete_pred:
+                        # idx = subsets_idx_mask[batch_idx]
+                        cur_pred = pred.result().detach().clone()
+                        cur_idx = int(cur_pred[:, 1].max().item())
+                        print(cur_idx)
+                        cur_pred = cur_pred[:, 0]
+                        idx = subsets_idx_mask[cur_idx]
+                        predictions[idx] = cur_pred
+                        # predictions[subsets_idx_mask[idx+1]] = cur_pred
+                        # batch_idx += 1
+
+                    # wait for threads to finish before submitting the next batch
+                    executor.shutdown(wait=True)
+
         else:
             print('Using single GPU')
+            device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
             for i, model in enumerate(self.models):
+                cur_subset = x_subsets[i].to(device)
+                cur_model = model.to(device)
+                pred = self._predict_sub_model(cur_model, cur_subset)
                 idx = subsets_idx_mask[i]
-                pred = self._predict_sub_model(model, x_subsets[i], torch.device('cuda'))
-                predictions[idx] = pred.cpu()
+                predictions[idx] = pred
 
         return predictions, labels
     
-    def _predict_sub_model(self, model, x, device):
-        model = model.to(device)
-        x = x.to(device)
-        print(f'Predicting on {device}, with tensor on {x.device}')
+    def _predict_sub_model(self, model, x, idx=None):
+        # print(f'Predicting on {device}, with tensor on {x.device}')
         model.eval()
         with torch.no_grad():
-            pred = model(x.to(device))
+            pred = model(x).cpu()
+        if idx is not None:
+            # concatenate idx to the prediction
+            pred = torch.stack([pred, torch.ones_like(pred) * idx], dim=1)
         return pred
+
+    def evaluate_sub_models(self, subset_idx=None):
+        device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        if subset_idx is not None:
+            subsets = self.subsets[subset_idx]
+        else:
+            subsets = self.subsets
+        for j in range(len(subsets)):
+            for i in range(self.num_partitions):
+                subset = subsets[j]
+                model = self.models[i].to(device)
+                criterion = torch.nn.MSELoss()
+                val_loader = DataLoader(subset, batch_size=1, shuffle=False)
+                model.eval()
+                val_loss = 0
+                for x, y in val_loader:
+                    x, y = x.to(device), y.to(device)
+                    pred = model(x)
+                    val_loss += criterion(pred, y).item()
+                val_loss /= len(val_loader)
+                print(f'Subset {j}, Model {i}, Validation Loss: {val_loss}')
+            # wandb.log({'val_loss': val_loss})
+            # wandb.finish()

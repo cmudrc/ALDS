@@ -408,7 +408,7 @@ class FNO2d(nn.Module):
         x = self.p(x)
         x = x.permute(0, 3, 1, 2)
         x = F.pad(x, [0,self.padding, 0,self.padding])
-
+        # print(self.conv0.weights1.device)
         x1 = self.conv0(x)
         x1 = self.mlp0(x1)
         x2 = self.w0(x)

@@ -67,8 +67,8 @@ def pred_DS(idxs, exp_name, model, dataset, save_mode, **kwargs):
         pred_y_list = []
         x, sub_x_list, sub_y_list = dataset.get_one_full_sample(idx)
         for sub_x in sub_x_list:
-            sub_x = sub_x.to(model.device)
-            sub_pred_y = model(sub_x).cpu().detach().numpy()
+            sub_x = sub_x.unsqueeze(0).to(device)
+            sub_pred_y = model(sub_x).cpu().detach()
             pred_y_list.append(sub_pred_y)
 
         pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)

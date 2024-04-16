@@ -1,16 +1,16 @@
 # must have configs
-n_clusters: 8
+n_clusters: 6
 save_mode: 'save'
 
 # encoder configs
-n_components: 8
+n_components: 50
 
 # classifier configs
 
 # model configs
 in_channels: 8
 out_channels: 8
-width: 36
+width: 64
 
 # data configs
 root: 'data/jhtdb_icml'
@@ -19,7 +19,7 @@ tend: 500
 fields: 'u'
 dataset: 'isotropic1024coarse'
 partition: True
-sub_size: 64
+sub_size: 32
 
 # pred configs
 idxs: [100, 200, 400]

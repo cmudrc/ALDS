@@ -1,5 +1,6 @@
 import os
 import argparse
+import time
 from models.classifier import *
 from models.encoder import *
 from models.model import *
@@ -17,6 +18,10 @@ def load_yaml(path):
     return config
 
 
+def get_cur_time():
+    return time.strftime('%m-%d-%H-%M', time.localtime())
+
+
 def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
     window_size = y.shape[1]
     xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
@@ -31,7 +36,7 @@ def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
     axs[2].set_title('(c) Absolute difference by percentage')
     axs[2].axis('off')
     # add colorbar and labels to the rightmost plot
-    cbar = plt.colorbar(axs[2].collections[0], ax=axs, orientation='vertical')
+    cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
     cbar.set_label('Absolute difference')
     plt.tight_layout()
 

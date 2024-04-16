@@ -10,7 +10,7 @@ from models.scheduler import PartitionScheduler
 
 def train_ALDS(exp_name, encoder, classifier, model, dataset, num_partitions, train_config, **kwargs):
     scheduler = PartitionScheduler(exp_name, num_partitions, dataset, encoder, classifier, model, train=True)
-    scheduler.train(train_config)
+    scheduler.train(train_config, **kwargs)
 
 def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partitions, save_mode, **kwargs):
     scheduler = PartitionScheduler(exp_name, num_partitions, dataset, encoder, classifier, model, train=False)
@@ -39,7 +39,12 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
     # save r2 scores
     np.save(f'logs/raw_data/{exp_name}/r2_scores.npy', r2_scores)
 
+    # eval all sub models
+    scheduler.evaluate_sub_models()
+
     return r2_scores
+
+
 
 
 if __name__ == '__main__':
@@ -67,7 +72,7 @@ if __name__ == '__main__':
         wandb.init(project='ALDS', name=exp_name)
 
     if run_mode == 'train':
-        train_ALDS(exp_name, encoder, classifier, model, dataset, n_clusters, train_config)
+        train_ALDS(exp_name, encoder, classifier, model, dataset, n_clusters, train_config, sub_idx=0)
         print('Training done!')
     elif run_mode == 'pred':
         idxs = exp_config['idxs']

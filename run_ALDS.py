@@ -72,7 +72,7 @@ if __name__ == '__main__':
         wandb.init(project='ALDS', name=exp_name)
 
     if run_mode == 'train':
-        train_ALDS(exp_name, encoder, classifier, model, dataset, n_clusters, train_config, sub_idx=0)
+        train_ALDS(exp_name, encoder, classifier, model, dataset, n_clusters, train_config)
         print('Training done!')
     elif run_mode == 'pred':
         idxs = exp_config['idxs']

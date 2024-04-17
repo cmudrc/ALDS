@@ -13,6 +13,7 @@ import wandb
 from dataset.MatDataset import Sub_JHTDB
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
+from models.model import *
 
 
 class PartitionScheduler():
@@ -22,7 +23,7 @@ class PartitionScheduler():
         self.num_partitions = num_partitons
         self.encoder = encoder
         self.classifier = classifier
-        self.model = model
+        self.model = 'fno' # just for testing purposes
         self.dataset = dataset
 
         self.subsets = self._train_partitions(num_partitons, train)
@@ -32,10 +33,18 @@ class PartitionScheduler():
     def get_sub_dataset(self):
         return self.subsets
     
+    def _initialize_model(self, model_type, in_channels, out_channels, **kwargs):
+        if model_type == 'fno':
+            return FNO2d(in_channels, out_channels, **kwargs)
+        elif model_type == 'teecnet':
+            return TEECNetConv(in_channels, out_channels, **kwargs)
+        else:
+            raise ValueError(f'Invalid model type: {model_type}')
+    
     def _load_models(self):
         models = []
         for i in range(self.num_partitions):
-            model = self.model
+            model = self._initialize_model(self.model, 8, 8, width=64)
             model.load_state_dict(torch.load('logs/models/collection_{}/partition_{}.pth'.format(self.name, i), map_location=torch.device('cpu')))
             models.append(model)
         return models
@@ -70,7 +79,7 @@ class PartitionScheduler():
     def _train_sub_models(self, train_config, device, subset_idx=None, is_parallel=False):
         models = []
         if subset_idx is not None:
-            subsets = self.subsets[subset_idx]
+            subsets = [self.subsets[idx] for idx in subset_idx]
         else:
             subsets = self.subsets
         for i, subset in enumerate(subsets):
@@ -78,11 +87,12 @@ class PartitionScheduler():
             train_dataset, val_dataset = random_split(subset, [int(0.8 * len(subset)), len(subset) - int(0.8 * len(subset))])
             train_loader = DataLoader(train_dataset, batch_size=train_config['batch_size'], shuffle=True)
             val_loader = DataLoader(val_dataset, batch_size=train_config['batch_size'], shuffle=False)
+            model = self._initialize_model(self.model, 8, 8, width=64)
             if is_parallel:
-                model = nn.DataParallel(self.model)
+                model = nn.DataParallel(model)
                 model = model.to(device)
             else:
-                model = self.model.to(device)
+                model = model.to(device)
 
             criterion = torch.nn.MSELoss()
             optimizer = torch.optim.Adam(model.parameters(), lr=train_config['lr'])
@@ -135,7 +145,7 @@ class PartitionScheduler():
                 os.makedirs('logs/models/collection_{}'.format('fno_jhtdb'), exist_ok=True)
                 # model_scripted = torch.jit.script(model)
                 # model_scripted.save('logs/models/collection_{}/partition_{}.pt'.format(subset_idx, i, epoch))
-                torch.save(model.state_dict(), 'logs/models/collection_{}/partition_{}.pth'.format('fno_jhtdb', i))
+                torch.save(model.state_dict(), 'logs/models/collection_{}/partition_{}.pth'.format('fno_jhtdb_alds', i))
                 models.append(model)
 
             wandb.finish()
@@ -185,6 +195,7 @@ class PartitionScheduler():
             x_subsets.append(x[idx])
             subsets_idx_mask.append(idx)
         # print(len(x_subsets), len(subsets_idx_mask))
+        print(f'Predicting on {len(x_subsets)} subsets')
         if torch.cuda.device_count() > 1:
             print(f'Using {torch.cuda.device_count()} GPUs')
             device_list = [torch.device(f'cuda:{i}') for i in range(torch.cuda.device_count())]          

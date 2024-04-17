@@ -55,7 +55,7 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     # cover a colored mask on the prediction indicating the partition
     window_size = y_pred.shape[1]
     xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
-    fig, axs = plt.subplots(1, 2, figsize=(13, 5))
+    fig, axs = plt.subplots(1, 3, figsize=(17, 5))
 
     colormap = plt.cm.tab20
 
@@ -68,24 +68,30 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     axs[0].set_title('(a) Prediction')
     axs[0].axis('off')
     # axs[0].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
-    for i in range(int(window_size / sub_size)):
-        for j in range(int(window_size / sub_size)):
-            rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none', alpha=0.2)
-            axs[0].add_patch(rect)
+    # for i in range(int(window_size / sub_size)):
+    #     for j in range(int(window_size / sub_size)):
+    #         rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none', alpha=0.2)
+    #         axs[0].add_patch(rect)
 
     axs[1].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
     axs[1].set_title('(b) Absolute difference by percentage')
     axs[1].axis('off')
     # axs[1].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
-    for i in range(int(window_size / sub_size)):
-        for j in range(int(window_size / sub_size)):
-            rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none', alpha=0.2)
-            axs[1].add_patch(rect)
+    # for i in range(int(window_size / sub_size)):
+    #     for j in range(int(window_size / sub_size)):
+    #         rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none')
+    #         axs[1].add_patch(rect)
+
+    axs[2].imshow(mask, cmap='tab20', interpolation='none')
+    # add legend to show which color corresponds to which partition
+    patches = [mpatches.Patch(color=colormap(i), label=f'Partition {i}') for i in range(len(np.unique(labels)))]
+    axs[2].legend(handles=patches, loc='upper right')
     
     # add colorbar and labels to the rightmost plot
-    cbar = plt.colorbar(axs[1].collections[0], ax=axs[1], orientation='vertical')
-    cbar.set_label('Absolute difference')
-    # plt.tight_layout()
+    # cbar = plt.colorbar(axs[1].collections[0], ax=axs[1], orientation='vertical')
+    # cbar.set_label('Absolute difference')
+    # # plt.tight_layout()
+    
 
     if save_mode == 'wandb':
         wandb.log({'prediction': wandb.Image(plt)})

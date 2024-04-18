@@ -32,7 +32,7 @@ def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
     axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
     axs[1].set_title('(b) Prediction')
     axs[1].axis('off')
-    axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
+    axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=np.linspace(0, 1, 100), cmap='plasma')
     axs[2].set_title('(c) Absolute difference by percentage')
     axs[2].axis('off')
     # add colorbar and labels to the rightmost plot
@@ -73,7 +73,7 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     #         rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none', alpha=0.2)
     #         axs[0].add_patch(rect)
 
-    axs[1].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
+    axs[1].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=np.linspace(0, 1, 100), cmap='plasma')
     axs[1].set_title('(b) Absolute difference by percentage')
     axs[1].axis('off')
     # axs[1].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
@@ -107,6 +107,8 @@ def init_encoder(type, n_components, **kwargs):
         return PCAEncoder(n_components=n_components)
     elif type == 'vae':
         return VAEEncoder(n_components=n_components, **kwargs)
+    elif type == 'spectrum':
+        return SpectrumEncoder(n_components=n_components, **kwargs)
     else:
         raise ValueError(f'Invalid encoder type: {type}')
     

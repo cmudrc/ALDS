@@ -165,3 +165,75 @@ class VAEEncoder(Encoder):
                 z = self.model.reparameterize(mu, logvar)
                 latent_space.append(z.cpu().detach().numpy())
         return np.array(latent_space)
+    
+
+class SpectrumEncoder(Encoder):
+    def __init__(self, n_components, **kwargs):
+        super(SpectrumEncoder, self).__init__(n_components)
+        self.n_components = n_components
+        self.domain_size = kwargs['domain_size']
+
+    def train(self, dataset, save_model=False, path=None):
+        pass
+
+    def _compute_tke_spectrum(self, u, lx, ly):
+        """
+        Given velocity fields u and v, computes the turbulent kinetic energy spectrum. The function computes in three steps:
+        1. Compute velocity spectrum with fft, returns uf, vf.
+        2. Compute the point-wise turbulent kinetic energy Ef=0.5*(uf, vf)*conj(uf, vf).
+        3. For every wave number triplet (kx, ky, kz) we have a corresponding spectral kinetic energy 
+        Ef(kx, ky, kz). To extract a one dimensional spectrum, E(k), we integrate Ef(kx,ky,kz) over
+        the surface of a sphere of radius k = sqrt(kx^2 + ky^2 + kz^2). In other words
+        E(k) = sum( E(kx,ky,kz), for all (kx,ky,kz) such that k = sqrt(kx^2 + ky^2 + kz^2) ).
+        """
+        # print(u.shape)
+        nx = u.shape[0]
+        ny = u.shape[1]
+
+        nt = nx * ny
+        # Compute velocity spectrum
+        uf = np.fft.fftn(u, norm='ortho')
+
+        # Compute the point-wise turbulent kinetic energy
+        Ef = 0.5 * (uf * np.conj(uf)).real
+        kx = 2 * np.pi / lx 
+        ky = 2 * np.pi / ly
+        knorm = np.sqrt(kx ** 2 + ky ** 2)
+        kxmax = nx / 2
+        kymax = ny / 2
+        wave_numbers = knorm * np.arange(0, nx)
+        tke_spectrum = np.zeros(nx)
+        for i in range(nx):
+            rkx = i
+            if i > kxmax:
+                rkx = rkx - nx
+            for j in range(ny):
+                rky = j
+                if j > kymax:
+                    rky = rky - ny
+                rk = np.sqrt(rkx * rkx + rky * rky)
+                k_index = int(np.round(rk))
+                tke_spectrum[k_index] += Ef[i, j]
+        # k = torch.fft.fftfreq(nx, lx / nx)
+
+        # plt.loglog(wave_numbers[1:], tke_spectrum[1:])
+        # plt.savefig('tke_spectrum.png')
+        return tke_spectrum[1:], wave_numbers[1:]
+
+    def get_latent_space(self, dataset):
+        latent_space = []
+        for data in dataset:
+            x, y = data
+            tke_spectrum, wave_numbers = self._compute_tke_spectrum(x.squeeze(-1), self.domain_size, self.domain_size)
+            latent_space.append(tke_spectrum)
+        return np.array(latent_space)
+
+    def get_latent(self, x):
+        data_space = []
+        for sub_x in x:
+            tke_spectrum, wave_numbers = self._compute_tke_spectrum(sub_x.squeeze(-1), self.domain_size, self.domain_size)
+            data_space.append(tke_spectrum)
+        return np.array(data_space)
+
+    def load_model(self, path):
+        pass

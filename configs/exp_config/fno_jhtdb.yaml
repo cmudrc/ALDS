@@ -4,6 +4,7 @@ save_mode: 'save'
 
 # encoder configs
 n_components: 50
+domain_size: 0.1963495
 
 # classifier configs
 

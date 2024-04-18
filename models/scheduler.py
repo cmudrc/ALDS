@@ -51,6 +51,7 @@ class PartitionScheduler():
     
     def _train_partitions(self, num_partitions, train=True):
         if train:
+            os.makedirs('logs/models/collection_{}'.format(self.name), exist_ok=True)
             # train the encoder on the dataset
             self.encoder.train(self.dataset, save_model=True, path='logs/models/collection_{}'.format(self.name))
             # dump(self.encoder.model, 'logs/models/collection_{}/encoder.joblib'.format(self.name))
@@ -142,10 +143,10 @@ class PartitionScheduler():
                         # torch.save(model.state_dict(), f'logs/models/partition_{i}_epoch_{epoch}.pth')
                 
                 # register the model in a model collection
-                os.makedirs('logs/models/collection_{}'.format('fno_jhtdb'), exist_ok=True)
+                # os.makedirs('logs/models/collection_{}'.format({self.name}), exist_ok=True)
                 # model_scripted = torch.jit.script(model)
                 # model_scripted.save('logs/models/collection_{}/partition_{}.pt'.format(subset_idx, i, epoch))
-                torch.save(model.state_dict(), 'logs/models/collection_{}/partition_{}.pth'.format('fno_jhtdb_alds', i))
+                torch.save(model.state_dict(), 'logs/models/collection_{}/partition_{}.pth'.format(self.name, i))
                 models.append(model)
 
             wandb.finish()

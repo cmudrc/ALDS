@@ -346,13 +346,13 @@ class JHTDB_ICML(Dataset):
         os.makedirs(os.path.join(self.root, 'processed'), exist_ok=True)
         u_list = []
         with h5py.File(os.path.join(self.root, 'raw', 'data.h5'), 'r') as f:
-            for i in range(self.tend - self.tstart):
+            for i in range(self.tend - self.tstart - 100):
                 u_idx = str(i+1).rjust(4, '0')
                 u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
                 u_input = torch.tensor(u_input[0, :, :, :])
                 u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
                 # u_label at the next time step
-                u_label_idx = str(i+2).rjust(4, '0')
+                u_label_idx = str(i+100).rjust(4, '0')
                 u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
                 u_label = torch.tensor(u_label[0, :, :, :])
                 u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)

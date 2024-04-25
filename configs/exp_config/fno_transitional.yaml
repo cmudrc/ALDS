@@ -1,5 +1,5 @@
 # must have configs
-n_clusters: 4
+n_clusters: 2
 save_mode: 'save'
 
 # encoder configs
@@ -14,11 +14,11 @@ out_channels: 8
 width: 20
 
 # data configs
-root: 'data/jhtdb_isotropic1024'
+root: 'data/jhtdb_transition_bl'
 tstart: 1
-tend: 1000
+tend: 20
 fields: 'u'
-dataset: 'isotropic1024coarse'
+dataset: 'transition_bl'
 partition: True
 sub_size: 12
 

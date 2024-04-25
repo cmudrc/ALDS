@@ -116,6 +116,8 @@ def init_encoder(type, n_components, **kwargs):
 def init_classifier(type, n_clusters, **kwargs):
     if type == 'kmeans':
         return KMeansClassifier(n_clusters=n_clusters)
+    if type == 'mean_shift':
+        return MeanShiftClassifier()
     else:
         raise ValueError(f'Invalid classifier type: {type}')
     
@@ -132,6 +134,8 @@ def init_model(type, in_channels, out_channels, **kwargs):
 def init_dataset(name, **kwargs):
     if name == 'jhtdb':
         return JHTDB_ICML(**kwargs)
+    elif name == 'transition_bl':
+        return JHTDB_RECTANGULAR(**kwargs)
     else:
         raise ValueError(f'Invalid dataset name: {name}')
     

@@ -23,16 +23,16 @@ def get_cur_time():
 
 
 def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
-    window_size = y.shape[1]
-    xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
-    fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-    axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size, window_size), levels=100, cmap='plasma')
+    window_size_x, window_size_y = y_pred.shape[2], y_pred.shape[1]
+    xx, yy = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y))
+    fig, axs = plt.subplots(1, 3, figsize=(20, 5))
+    axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size_y, window_size_x), levels=100, cmap='plasma')
     axs[0].set_title('(a) Ground truth')
     axs[0].axis('off')
-    axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
+    axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size_y, window_size_x), levels=100, cmap='plasma')
     axs[1].set_title('(b) Prediction')
     axs[1].axis('off')
-    axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=np.linspace(0, 1, 100), cmap='plasma')
+    axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size_y, window_size_x) - y_pred.cpu().reshape(window_size_y, window_size_x)) / y.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
     axs[2].set_title('(c) Absolute difference by percentage')
     axs[2].axis('off')
     # add colorbar and labels to the rightmost plot
@@ -53,18 +53,21 @@ def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
 
 def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     # cover a colored mask on the prediction indicating the partition
-    window_size = y_pred.shape[1]
-    xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
-    fig, axs = plt.subplots(1, 3, figsize=(17, 5))
+    window_size_x, window_size_y = y_pred.shape[2], y_pred.shape[1]
+    xx, yy = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y))
+    fig, axs = plt.subplots(1, 3, figsize=(20, 5))
 
     colormap = plt.cm.tab20
 
-    mask = np.zeros((window_size, window_size))
-    for i in range(int(window_size / sub_size)):
-        for j in range(int(window_size / sub_size)):
-            mask[i * sub_size:(i + 1) * sub_size, j * sub_size:(j + 1) * sub_size] = labels[i * int(window_size / sub_size) + j]
+    mask = np.zeros((window_size_y, window_size_x))
+    for i in range(window_size_x // sub_size):
+        for j in range(window_size_y // sub_size):
+            mask[j * sub_size:(j + 1) * sub_size, i * sub_size:(i + 1) * sub_size] = labels[i * (window_size_y // sub_size) + j]
 
-    axs[0].contourf(xx, yy, y_pred.cpu().detach().reshape(window_size, window_size), levels=100, cmap='plasma')
+    # revert y axis of mask
+    mask = np.flip(mask, axis=0)
+
+    axs[0].contourf(xx, yy, y_pred.cpu().detach().reshape(window_size_y, window_size_x), levels=100, cmap='plasma')
     axs[0].set_title('(a) Prediction')
     axs[0].axis('off')
     # axs[0].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
@@ -73,7 +76,7 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     #         rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none', alpha=0.2)
     #         axs[0].add_patch(rect)
 
-    axs[1].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=np.linspace(0, 1, 100), cmap='plasma')
+    axs[1].contourf(xx, yy, np.abs(y.cpu().reshape(window_size_y, window_size_x) - y_pred.cpu().reshape(window_size_y, window_size_x)) / y.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
     axs[1].set_title('(b) Absolute difference by percentage')
     axs[1].axis('off')
     # axs[1].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')

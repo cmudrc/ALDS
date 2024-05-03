@@ -94,3 +94,35 @@ class GaussianMixtureClassifier(Classifier):
     def load_model(self, path):
         self.model = load(os.path.join(path, 'gmm_classifier.joblib'))
         self.scaler = load(os.path.join(path, 'gmm_scaler.joblib'))
+
+
+class WassersteinKMeansClassifier(KMeansClassifier):
+    def __init__(self, n_clusters):
+        super(WassersteinKMeansClassifier, self).__init__(n_clusters)
+        
+    def _wasserstein_distance(self, x1, x2, p=2):
+        F1 = np.cumsum(x1)
+        F2 = np.cumsum(x2)
+
+        return np.sum(np.abs(F1 - F2) ** p) ** (1 / p)
+    
+    def _kplusplus(self, data, n_clusters):
+        n_samples, n_features = data.shape
+        centers = np.zeros((n_clusters, n_features))
+        centers[0] = data[np.random.choice(n_samples)]
+        distances = np.zeros(n_samples)
+        for i in range(1, n_clusters):
+            for j in range(n_samples):
+                distances[j] = np.min([self._wasserstein_distance(data[j], centers[k]) for k in range(i)])
+            centers[i] = data[np.argmax(distances)]
+        return centers
+    
+    def train(self, data, save_model=False, path=None):
+        data = self.scaler.fit_transform(data)
+        self.model.cluster_centers_ = self._kplusplus(data, self.n_clusters)
+        if save_model:
+            self._save_model(path)
+
+    def _save_model(self, path):
+        dump(self.model, os.path.join(path, 'wasserstein_kmeans_classifier.joblib'))
+        dump(self.scaler, os.path.join(path, 'wasserstein_kmeans_scaler.joblib'))

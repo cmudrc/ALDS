@@ -237,12 +237,25 @@ class PartitionScheduler():
             device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
             for i, model in enumerate(self.models):
                 cur_subset = x_subsets[i].to(device)
+                if len(cur_subset) == 0:
+                    continue
                 cur_model = model.to(device)
                 pred = self._predict_sub_model(cur_model, cur_subset)
                 idx = subsets_idx_mask[i]
                 predictions[idx] = pred
 
         return predictions, labels
+    
+    def recurrent_predict(self, x, num_iters):
+        all_predictions = []
+        all_labels = []
+        predictions = x
+        for i in range(num_iters):
+            pred, _ = self.predict(predictions)
+            predictions = pred
+            all_predictions.append(predictions)
+            all_labels.append(_)
+        return all_predictions, all_labels
     
     def _predict_sub_model(self, model, x, idx=None):
         # print(f'Predicting on {device}, with tensor on {x.device}')

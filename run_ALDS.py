@@ -16,31 +16,54 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
     scheduler = PartitionScheduler(exp_name, num_partitions, dataset, encoder, classifier, model, train=False)
     
     r2_scores = []
-    for idx in idxs:
-        x, sub_x_list, sub_y_list = dataset.get_one_full_sample(idx)
+    if 'timesteps' in kwargs:
+        x, sub_x_list, _ = dataset.get_one_full_sample(idxs[0])
         sub_x_tensor = torch.stack(sub_x_list)
-        pred_y_list, labels = scheduler.predict(sub_x_tensor)
-        
-        pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
-        sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
+        all_pred_y_list, all_labels = scheduler.recurrent_predict(sub_x_tensor, kwargs['timesteps'])
+        timestep = idxs[0]
+        for pred_y_list, labels in zip(all_pred_y_list, all_labels):
+            sub_y_list, _, _ = dataset.get_one_full_sample(timestep+kwargs['timesteps'])
+            pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
+            sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
 
-        plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/idx_{idx}.pdf')
-        plot_partition(sub_y, pred_y, labels, kwargs['sub_size'], save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_idx_{idx}.pdf')
+            plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/timestep_{timestep}.pdf')
+            plot_partition(sub_y, pred_y, labels, kwargs['sub_size'], save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_timestep_{timestep}.pdf')
 
-        r2_scores.append(r2_score(sub_y.flatten().cpu().detach().numpy(), pred_y.flatten().cpu().detach().numpy()))
-        # save the prediction
-        os.makedirs(f'logs/raw_data/{exp_name}', exist_ok=True)
-        torch.save(pred_y, f'logs/raw_data/{exp_name}/pred_idx_{idx}.pth')
-        torch.save(sub_y, f'logs/raw_data/{exp_name}/gt_idx_{idx}.pth')
+            r2_scores.append(r2_score(sub_y.flatten().cpu().detach().numpy(), pred_y.flatten().cpu().detach().numpy()))
+            # save the prediction
+            os.makedirs(f'logs/raw_data/{exp_name}', exist_ok=True)
+            torch.save(pred_y, f'logs/raw_data/{exp_name}/pred_timestep_{timestep}.pth')
+            torch.save(sub_y, f'logs/raw_data/{exp_name}/gt_timestep_{timestep}.pth')
+            timestep += 1
+            if save_mode == 'wandb':
+                wandb.log({'r2_score': r2_scores[-1]})
 
-        if save_mode == 'wandb':
-            wandb.log({'r2_score': r2_scores[-1]})
+    else:
+        for idx in idxs:
+            x, sub_x_list, sub_y_list = dataset.get_one_full_sample(idx)
+            sub_x_tensor = torch.stack(sub_x_list)
+            pred_y_list, labels = scheduler.predict(sub_x_tensor)
+            
+            pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
+            sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
+
+            plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/idx_{idx}.pdf')
+            plot_partition(sub_y, pred_y, labels, kwargs['sub_size'], save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_idx_{idx}.pdf')
+
+            r2_scores.append(r2_score(sub_y.flatten().cpu().detach().numpy(), pred_y.flatten().cpu().detach().numpy()))
+            # save the prediction
+            os.makedirs(f'logs/raw_data/{exp_name}', exist_ok=True)
+            torch.save(pred_y, f'logs/raw_data/{exp_name}/pred_idx_{idx}.pth')
+            torch.save(sub_y, f'logs/raw_data/{exp_name}/gt_idx_{idx}.pth')
+
+            if save_mode == 'wandb':
+                wandb.log({'r2_score': r2_scores[-1]})
 
     # save r2 scores
     np.save(f'logs/raw_data/{exp_name}/r2_scores.npy', r2_scores)
 
     # eval all sub models
-    scheduler.evaluate_sub_models()
+    # scheduler.evaluate_sub_models()
 
     return r2_scores
 
@@ -77,5 +100,9 @@ if __name__ == '__main__':
     elif run_mode == 'pred':
         idxs = exp_config['idxs']
         save_mode = exp_config['save_mode']
-        pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, n_clusters, save_mode=save_mode, sub_size=exp_config['sub_size'])
+        # check if timesteps are provided
+        if 'timesteps' in exp_config:
+            pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, n_clusters, save_mode=save_mode, sub_size=exp_config['sub_size'], timesteps=exp_config['timesteps'])
+        else:
+            pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, n_clusters, save_mode=save_mode, sub_size=exp_config['sub_size'])
         print('Prediction done!')

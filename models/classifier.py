@@ -4,6 +4,11 @@ import torch
 from sklearn.cluster import KMeans, MeanShift
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
+from sklearn.base import BaseEstimator, ClusterMixin
+from sklearn.utils import check_random_state
+from sklearn.metrics import pairwise_distances
+from sklearn.cluster import KMeans
+from scipy.stats import wasserstein_distance
 from joblib import dump, load
 
 
@@ -99,30 +104,89 @@ class GaussianMixtureClassifier(Classifier):
 class WassersteinKMeansClassifier(KMeansClassifier):
     def __init__(self, n_clusters):
         super(WassersteinKMeansClassifier, self).__init__(n_clusters)
-        
-    def _wasserstein_distance(self, x1, x2, p=2):
-        F1 = np.cumsum(x1)
-        F2 = np.cumsum(x2)
+        self.model = KMeansWasserstein(n_clusters=n_clusters, random_state=0)
 
-        return np.sum(np.abs(F1 - F2) ** p) ** (1 / p)
-    
-    def _kplusplus(self, data, n_clusters):
-        n_samples, n_features = data.shape
-        centers = np.zeros((n_clusters, n_features))
-        centers[0] = data[np.random.choice(n_samples)]
-        distances = np.zeros(n_samples)
-        for i in range(1, n_clusters):
-            for j in range(n_samples):
-                distances[j] = np.min([self._wasserstein_distance(data[j], centers[k]) for k in range(i)])
-            centers[i] = data[np.argmax(distances)]
-        return centers
-    
     def train(self, data, save_model=False, path=None):
         data = self.scaler.fit_transform(data)
-        self.model.cluster_centers_ = self._kplusplus(data, self.n_clusters)
+        self.model.fit(data)
         if save_model:
             self._save_model(path)
 
     def _save_model(self, path):
         dump(self.model, os.path.join(path, 'wasserstein_kmeans_classifier.joblib'))
         dump(self.scaler, os.path.join(path, 'wasserstein_kmeans_scaler.joblib'))
+             
+    def load_model(self, path):
+        self.model = load(os.path.join(path, 'wasserstein_kmeans_classifier.joblib'))
+        self.scaler = load(os.path.join(path, 'wasserstein_kmeans_scaler.joblib'))
+                           
+    def cluster(self, data):
+        data = self._normalize(data)
+        return self.model.predict(data)
+    
+
+class KMeansWasserstein(BaseEstimator, ClusterMixin):
+    def __init__(self, n_clusters=8, max_iter=300, tol=1e-4, random_state=None, distance_metric="euclidean"):
+        self.n_clusters = n_clusters
+        self.max_iter = max_iter
+        self.tol = tol
+        self.random_state = random_state
+        self.distance_metric = distance_metric
+
+    def fit(self, X, y=None):
+        n_samples, n_features = X.shape
+
+        rng = check_random_state(self.random_state)
+        self.labels_ = rng.randint(self.n_clusters, size=n_samples)
+
+        best_inertia = None
+        for _ in range(self.max_iter):
+            centers = self._calculate_centers(X)
+            distances = self._compute_distance(X, centers)
+            labels = np.argmin(distances, axis=1)
+
+            if np.sum(labels != self.labels_) == 0:
+                break
+
+            self.labels_ = labels
+
+            inertia = np.sum(np.min(distances, axis=1))
+            if best_inertia is None or inertia < best_inertia - self.tol:
+                best_inertia = inertia
+            else:
+                break
+
+        self.cluster_centers_ = self._calculate_centers(X)
+        self.inertia_ = best_inertia
+
+        return self
+
+    def _calculate_centers(self, X):
+        centers = np.empty((self.n_clusters, X.shape[1]))
+
+        for i in range(self.n_clusters):
+            mask = self.labels_ == i
+            if np.sum(mask) == 0:
+                # Empty cluster, choose a random point
+                centers[i] = X[np.random.randint(X.shape[0])]
+            else:
+                # Compute the average of Wasserstein distances to all points in the cluster
+                cluster_points = X[mask]
+                w_distances = pairwise_distances(cluster_points, metric=self._wasserstein_distance)
+                mean_point = np.mean(w_distances, axis=0)
+                centers[i] = cluster_points[np.argmin(mean_point)]
+
+        return centers
+
+    def _compute_distance(self, X, centers):
+        if self.distance_metric == "euclidean":
+            return pairwise_distances(X, centers, metric="euclidean")
+        elif self.distance_metric == "wasserstein":
+            return pairwise_distances(X, centers, metric=self._wasserstein_distance)
+
+    def _wasserstein_distance(self, x, y):
+        return wasserstein_distance(x, y)
+
+    def predict(self, X):
+        distances = self._compute_distance(X, self.cluster_centers_)
+        return np.argmin(distances, axis=1)

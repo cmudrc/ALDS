@@ -1,6 +1,6 @@
 # must have configs
 n_clusters: 2
-save_mode: 'save'
+save_mode: 'save_png'
 
 # encoder configs
 n_components: 20

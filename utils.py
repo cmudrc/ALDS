@@ -10,6 +10,7 @@ import yaml
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import wandb
+from numba import jit
 
 
 def load_yaml(path):
@@ -50,7 +51,7 @@ def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
         plt.savefig(kwargs['path'] +'.pdf', format='pdf', dpi=1200)
     elif save_mode == 'save_png':
         os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
-        plt.savefig(kwargs['path'] +'.png', format='png', dpi=1200)
+        plt.savefig(kwargs['path'] +'.png', format='png', dpi=300)
     plt.close()
 
 
@@ -108,7 +109,7 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
         plt.savefig(kwargs['path'] + '.pdf', format='pdf', dpi=1200)
     elif save_mode == 'save_png':
         os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
-        plt.savefig(kwargs['path'] + '.png', format='png', dpi=1200)
+        plt.savefig(kwargs['path'] + '.png', format='png', dpi=300)
     plt.close()
     
 
@@ -166,6 +167,7 @@ def parse_args():
     return args
 
 
+@jit(nopython=True)
 def compute_tke_spectrum(u, lx, ly):
     """
     Given velocity fields u and v, computes the turbulent kinetic energy spectrum. The function computes in three steps:

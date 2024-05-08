@@ -346,13 +346,13 @@ class JHTDB_ICML(Dataset):
         os.makedirs(os.path.join(self.root, 'processed'), exist_ok=True)
         u_list = []
         with h5py.File(os.path.join(self.root, 'raw', 'data.h5'), 'r') as f:
-            for i in range(self.tend - self.tstart - 1):
+            for i in range(self.tend - self.tstart - 10):
                 u_idx = str(i+1).rjust(4, '0')
                 u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
                 u_input = torch.tensor(u_input[0, :, :, :])
                 u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
                 # u_label at the next time step
-                u_label_idx = str(i+1).rjust(4, '0')
+                u_label_idx = str(i+10).rjust(4, '0')
                 u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
                 u_label = torch.tensor(u_label[0, :, :, :])
                 u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
@@ -517,30 +517,31 @@ class JHTDB_RECTANGULAR(Dataset):
     def _process(self, flag_partition=False):
         os.makedirs(os.path.join(self.root, 'processed'), exist_ok=True)
         u_list = []
-        
-        for i in range(self.tend - self.tstart - 2):
+        print(self.valid_tsteps)
+        for i in range(self.tend - self.tstart - 11):
             # check if i and i+100 are valid time steps
-            if i+1 not in self.valid_tsteps or i+2 not in self.valid_tsteps:
+            if (i+1 not in self.valid_tsteps) or (i+4 not in self.valid_tsteps):
                 continue
-            with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(i+1)), 'r') as f:
-                u_idx = str(i+1).rjust(4, '0')
-                u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
-                u_input = torch.tensor(u_input[0, :, :, :])
-                u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
-                # u_label at the next time step
-                with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(i+2)), 'r') as f:
-                    u_label_idx = str(i+2).rjust(4, '0')  
-                    u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
-                    u_label = torch.tensor(u_label[0, :, :, :])
-                    u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
+            else:
+                with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(i+1)), 'r') as f:
+                    u_idx = str(i+1).rjust(4, '0')
+                    u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
+                    u_input = torch.tensor(u_input[0, :, :, :])
+                    u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
+                    # u_label at the next time step
+                    with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(i+4)), 'r') as f:
+                        u_label_idx = str(i+4).rjust(4, '0')  
+                        u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
+                        u_label = torch.tensor(u_label[0, :, :, :])
+                        u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
 
-                    if flag_partition:
-                        u_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
-                        u_label_list = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
-                        for u_input, u_label in zip(u_input_list, u_label_list):
+                        if flag_partition:
+                            u_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
+                            u_label_list = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
+                            for u_input, u_label in zip(u_input_list, u_label_list):
+                                u_list.append([u_input, u_label])
+                        else:
                             u_list.append([u_input, u_label])
-                    else:
-                        u_list.append([u_input, u_label])
 
         torch.save(u_list, os.path.join(self.root, 'processed', 'data.pt'))
 

@@ -56,11 +56,12 @@ class PartitionScheduler():
             self.encoder.train(self.dataset, save_model=True, path='logs/models/collection_{}'.format(self.name))
             # dump(self.encoder.model, 'logs/models/collection_{}/encoder.joblib'.format(self.name))
             latent_space = self.encoder.get_latent_space(self.dataset)
-
+            print('Latent space shape:', latent_space.shape)
             # cluster the latent space into different groups
             self.classifier.train(latent_space, save_model=True, path='logs/models/collection_{}'.format(self.name))
             # dump(self.classifier.model, 'logs/models/collection_{}/classifier.joblib'.format(self.name))
             labels = self.classifier.cluster(latent_space)
+            print('Labels:', labels)
         else:
             # load the pre-trained encoder and classifier
             self.encoder.load_model('logs/models/collection_{}'.format(self.name))
@@ -252,7 +253,7 @@ class PartitionScheduler():
         predictions = x
         for i in range(num_iters):
             pred, _ = self.predict(predictions)
-            predictions = pred
+            predictions = pred.cpu().clone()
             all_predictions.append(predictions)
             all_labels.append(_)
         return all_predictions, all_labels

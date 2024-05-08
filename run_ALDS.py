@@ -22,7 +22,7 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
         all_pred_y_list, all_labels = scheduler.recurrent_predict(sub_x_tensor, kwargs['timesteps'])
         timestep = idxs[0]
         for pred_y_list, labels in zip(all_pred_y_list, all_labels):
-            _, sub_y_list, _ = dataset.get_one_full_sample(timestep+kwargs['timesteps'])
+            _, sub_y_list, _ = dataset.get_one_full_sample(timestep+10)
             pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
             sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
 
@@ -34,7 +34,7 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
             os.makedirs(f'logs/raw_data/{exp_name}', exist_ok=True)
             torch.save(pred_y, f'logs/raw_data/{exp_name}/pred_timestep_{timestep}.pth')
             torch.save(sub_y, f'logs/raw_data/{exp_name}/gt_timestep_{timestep}.pth')
-            timestep += 1
+            timestep += 10
             if save_mode == 'wandb':
                 wandb.log({'r2_score': r2_scores[-1]})
 

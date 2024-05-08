@@ -10,7 +10,7 @@ from sklearn.metrics import pairwise_distances
 from sklearn.cluster import KMeans
 from scipy.stats import wasserstein_distance
 from joblib import dump, load
-
+from numba import jit
 
 class Classifier:
     def __init__(self, n_clusters):
@@ -126,7 +126,7 @@ class WassersteinKMeansClassifier(KMeansClassifier):
     
 
 class KMeansWasserstein(BaseEstimator, ClusterMixin):
-    def __init__(self, n_clusters=8, max_iter=300, tol=1e-4, random_state=None, distance_metric="euclidean"):
+    def __init__(self, n_clusters=8, max_iter=300, tol=1e-4, random_state=None, distance_metric="wasserstein"):
         self.n_clusters = n_clusters
         self.max_iter = max_iter
         self.tol = tol
@@ -172,6 +172,7 @@ class KMeansWasserstein(BaseEstimator, ClusterMixin):
             else:
                 # Compute the average of Wasserstein distances to all points in the cluster
                 cluster_points = X[mask]
+                print(cluster_points[0].shape)
                 w_distances = pairwise_distances(cluster_points, metric=self._wasserstein_distance)
                 mean_point = np.mean(w_distances, axis=0)
                 centers[i] = cluster_points[np.argmin(mean_point)]
@@ -184,7 +185,8 @@ class KMeansWasserstein(BaseEstimator, ClusterMixin):
         elif self.distance_metric == "wasserstein":
             return pairwise_distances(X, centers, metric=self._wasserstein_distance)
 
-    def _wasserstein_distance(self, x, y):
+    @staticmethod
+    def _wasserstein_distance(x, y):
         return wasserstein_distance(x, y)
 
     def predict(self, X):

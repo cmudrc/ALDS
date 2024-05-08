@@ -548,9 +548,13 @@ class JHTDB_RECTANGULAR(Dataset):
     def symmetric_padding(self, x, mode):
         # pad the domain symmetrically to make it divisible by sub_size
         x_dim = len(x.shape)
-        # get pad size
-        pad_size_x = (x.shape[x_dim-2] % self.sub_size) // 2
-        pad_size_y = (x.shape[x_dim-3] % self.sub_size) // 2
+        if mode == 'train':
+            # get pad size
+            pad_size_x = (x.shape[x_dim-2] % self.sub_size) // 2 + 2
+            pad_size_y = (x.shape[x_dim-3] % self.sub_size) // 2 + 2
+        elif mode == 'test':
+            pad_size_x = (x.shape[x_dim-2] % self.sub_size) // 2
+            pad_size_y = (x.shape[x_dim-3] % self.sub_size) // 2
         x = F.pad(x, (0, 0, pad_size_x, pad_size_x, pad_size_y, pad_size_y))
         # print(x[0, :, :, 0])
         if mode == 'train':
@@ -568,15 +572,16 @@ class JHTDB_RECTANGULAR(Dataset):
     def get_partition_domain(self, x, mode, displacement=0):
         # pad the domain symmetrically to make it divisible by sub_size
         # print(x.shape)
+        partition_sub_size = self.sub_size + 4
         x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode)
         # partition the domain into num_partitions subdomains of the same size
         x_list = []
-        num_partitions_dim_x = x.shape[1] // self.sub_size
-        num_partitions_dim_y = x.shape[0] // self.sub_size
+        num_partitions_dim_x = x.shape[1] - partition_sub_size + 1
+        num_partitions_dim_y = x.shape[0] - partition_sub_size + 1
 
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
-                x_list.append(x[j*self.sub_size:(j+1)*self.sub_size, i*self.sub_size:(i+1)*self.sub_size, :])
+                x_list.append(x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, :])
         return x_list
     
     def reconstruct_from_partitions(self, x, x_list, displacement=0):
@@ -585,22 +590,24 @@ class JHTDB_RECTANGULAR(Dataset):
         # print(x.shape)
         x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode='test')
         
-        num_partitions_dim_x = x.shape[2] // self.sub_size
-        num_partitions_dim_y = x.shape[1] // self.sub_size
+        num_partitions_dim_x = x.shape[2] - self.sub_size + 1
+        num_partitions_dim_y = x.shape[1] - self.sub_size + 1
 
         x = torch.zeros_like(x)
         # if the domain can be fully partitioned into subdomains of the same size
         # if len(x_list) == num_partitions_dim**2:
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
-                x[:, j*self.sub_size:(j+1)*self.sub_size, i*self.sub_size:(i+1)*self.sub_size, :] = x_list[i*num_partitions_dim_y + j].unsqueeze(0)
+                x[:, j*self.sub_size:(j+1)*self.sub_size, i*self.sub_size:(i+1)*self.sub_size, :] = x_list[i*num_partitions_dim_y + j][2:-2, 2:-2, :]
 
-        if pad_size_x == 1:
-            return x[:, pad_size_y:-pad_size_y-1, :, :]
-        if pad_size_y == 1:
-            return x[:, :, pad_size_x:-pad_size_x-1, :]
+        if pad_size_x == 1 and pad_size_y > 1:
+            return x[:, pad_size_y:-pad_size_y, :, :]
+        elif pad_size_y == 1 and pad_size_x > 1:
+            return x[:, :, pad_size_x:-pad_size_x, :]
+        elif pad_size_x == 1 and pad_size_y == 1:
+            return x
         else:
-            x = x[:, pad_size_y:-pad_size_y-1, pad_size_x:-pad_size_x-1, :]
+            x = x[:, pad_size_y:-pad_size_y, pad_size_x:-pad_size_x, :]
             return x
         
     def process(self, flag_partition=False):

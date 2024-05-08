@@ -254,8 +254,11 @@ class PartitionScheduler():
         for i in range(num_iters):
             pred, _ = self.predict(predictions)
             predictions = pred.cpu().clone()
+            prediction_reconstructed = self.dataset.reconstruct_from_partitions(x, predictions)
             all_predictions.append(predictions)
             all_labels.append(_)
+            predictions = self.dataset.get_partition_domain(prediction_reconstructed)
+
         return all_predictions, all_labels
     
     def _predict_sub_model(self, model, x, idx=None):

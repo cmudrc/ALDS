@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --cpus-per-task=128
-#SBATCH -p biosimmlab
-#SBATCH --mem=512G
-#SBATCH --gpus-per-node=1
+#SBATCH -N 1
+#SBATCH -p batch
+#SBATCH --gpus=a40
+#SBATCH --ntasks-per-node=32
 #SBATCH -t 30:00:00
 
 # type 'man sbatch' for more information and options
@@ -27,4 +27,4 @@ source /trace/home/wxu2/.bashrc
 conda activate pyg
 
 # run the executable
-python3 /trace/group/biosimmlab/wxu2/ARRS/run_ALDS.py --dataset=transition_bl --encoder=spectrum --classifier=wasserstein --model=fno --exp_name=spectrum_wasserstein_fno_transition_bl_alds --mode=train --exp_config /trace/group/biosimmlab/wxu2/ARRS/configs/exp_config/fno_transitional.yaml --train_config /trace/group/biosimmlab/wxu2/ARRS/configs/train_config/fno.yaml 
+python3 /trace/group/biosimmlab/wxu2/ARRS/run_DS.py --dataset=jhtdb --model=fno --exp_name=fno_jhtdb_ds --mode=train --exp_config /trace/group/biosimmlab/wxu2/ARRS/configs/exp_config/fno_jhtdb.yaml --train_config /trace/group/biosimmlab/wxu2/ARRS/configs/train_config/fno.yaml 

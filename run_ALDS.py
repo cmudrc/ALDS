@@ -34,7 +34,7 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
             os.makedirs(f'logs/raw_data/{exp_name}', exist_ok=True)
             torch.save(pred_y, f'logs/raw_data/{exp_name}/pred_timestep_{timestep}.pth')
             torch.save(sub_y, f'logs/raw_data/{exp_name}/gt_timestep_{timestep}.pth')
-            timestep += 10
+            timestep += 1
             if save_mode == 'wandb':
                 wandb.log({'r2_score': r2_scores[-1]})
 

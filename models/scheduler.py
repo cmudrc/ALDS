@@ -11,7 +11,6 @@ import torch.nn.functional as F
 from joblib import dump, load
 import wandb
 from dataset.MatDataset import Sub_JHTDB
-import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 from models.model import *
 

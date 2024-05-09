@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from joblib import dump, load
+from multiprocessing import Pool
 
 
 class Encoder():
@@ -175,8 +176,9 @@ class SpectrumEncoder(Encoder):
 
     def train(self, dataset, save_model=False, path=None):
         pass
-
-    def _compute_tke_spectrum(self, u, lx, ly):
+    
+    @staticmethod
+    def _compute_tke_spectrum(u):
         """
         Given velocity fields u and v, computes the turbulent kinetic energy spectrum. The function computes in three steps:
         1. Compute velocity spectrum with fft, returns uf, vf.
@@ -186,13 +188,17 @@ class SpectrumEncoder(Encoder):
         the surface of a sphere of radius k = sqrt(kx^2 + ky^2 + kz^2). In other words
         E(k) = sum( E(kx,ky,kz), for all (kx,ky,kz) such that k = sqrt(kx^2 + ky^2 + kz^2) ).
         """
+        u, lx, ly = u
+        # check if u is a data that contains x and y or just x
+        if len(u) == 2:
+            u = u[0]
         # print(u.shape)
         nx = u.shape[0]
         ny = u.shape[1]
 
         nt = nx * ny
         # Compute velocity spectrum
-        uf = np.fft.fftn(u, norm='ortho')
+        uf = np.fft.fft2(u, axes=(0, 1))
 
         # Compute the point-wise turbulent kinetic energy
         Ef = 0.5 * (uf * np.conj(uf)).real
@@ -218,22 +224,19 @@ class SpectrumEncoder(Encoder):
 
         # plt.loglog(wave_numbers[1:], tke_spectrum[1:])
         # plt.savefig('tke_spectrum.png')
-        return tke_spectrum[1:], wave_numbers[1:]
+        return tke_spectrum[1:]
 
     def get_latent_space(self, dataset):
-        latent_space = []
-        for data in dataset:
-            x, y = data
-            tke_spectrum, wave_numbers = self._compute_tke_spectrum(x.squeeze(-1), self.domain_size, self.domain_size)
-            latent_space.append(tke_spectrum)
+        dataset = [[data[0], self.domain_size, self.domain_size] for data in dataset.data]
+        with Pool() as p:
+            latent_space = p.map(self._compute_tke_spectrum, dataset)
         return np.array(latent_space)
 
     def get_latent(self, x):
-        data_space = []
-        for sub_x in x:
-            tke_spectrum, wave_numbers = self._compute_tke_spectrum(sub_x.squeeze(-1), self.domain_size, self.domain_size)
-            data_space.append(tke_spectrum)
-        return np.array(data_space)
+        x = [(data, self.domain_size, self.domain_size) for data in x]
+        with Pool() as p:
+            latent_space = p.map(self._compute_tke_spectrum, x)
+        return np.array(latent_space)
 
     def load_model(self, path):
         pass

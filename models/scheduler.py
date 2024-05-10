@@ -60,7 +60,7 @@ class PartitionScheduler():
             self.classifier.train(latent_space, save_model=True, path='logs/models/collection_{}'.format(self.name))
             # dump(self.classifier.model, 'logs/models/collection_{}/classifier.joblib'.format(self.name))
             labels = self.classifier.cluster(latent_space)
-            print('Labels:', labels)
+            # print('Labels:', labels)
         else:
             # load the pre-trained encoder and classifier
             self.encoder.load_model('logs/models/collection_{}'.format(self.name))

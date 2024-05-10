@@ -129,7 +129,7 @@ class WassersteinKMeansClassifier(KMeansClassifier):
     
 
 class KMeansWasserstein(BaseEstimator, ClusterMixin):
-    def __init__(self, n_clusters=8, max_iter=300, tol=1e-4, random_state=None, distance_metric="wasserstein", init='k-means++', n_jobs=-1):
+    def __init__(self, n_clusters=8, max_iter=300, tol=1e-4, random_state=None, distance_metric="wasserstein", init='k-means++', n_jobs=16):
         self.n_clusters = n_clusters
         self.max_iter = max_iter
         self.tol = tol
@@ -140,34 +140,23 @@ class KMeansWasserstein(BaseEstimator, ClusterMixin):
         self.centers = None
 
     def _initialize_centers(self, X):
-        if self.init == 'random':
-            np.random.seed(self.random_state)
-            random_idx = np.random.permutation(X.shape[0])
-            self.centers = X[random_idx[:self.n_clusters]]
-        elif self.init == 'k-means++':
-            np.random.seed(self.random_state)
-            n_samples, n_features = X.shape
-            self.centers = np.empty((self.n_clusters, n_features), dtype=X.dtype)
-            # Randomly choose the first center
-            center_id = np.random.randint(0, n_samples)
-            self.centers[0] = X[center_id]
-            
-            # Initialize a list to store distances of points from nearest center
-            closest_dist_sq = self._compute_distances(X)[:, 0] ** 2
+        np.random.seed(self.random_state)
+        n_samples = X.shape[0]
+        self.centers = [X[np.random.randint(n_samples)]]
+        for _ in range(1, self.n_clusters):
+            # Compute distances from each point to the nearest center
+            if self.distance_metric == 'euclidean':
+                distances = np.array([min(np.linalg.norm(x - center)**2 for center in self.centers) for x in X])
+            elif self.distance_metric == 'wasserstein':
+                distances = np.array([min(wasserstein_distance(x, center) for center in self.centers) for x in X])
 
-            for c in range(1, self.n_clusters):
-                # Select next center with probability proportional to squared distance
-                probabilities = closest_dist_sq / closest_dist_sq.sum()
-                cumulative_probabilities = np.cumsum(probabilities)
-                r = np.random.rand()
-                next_center_id = np.where(cumulative_probabilities >= r)[0][0]
-                self.centers[c] = X[next_center_id]
-
-                # Update closest distances
-                new_distances = self._compute_distances(X, index=c)
-                closest_dist_sq = np.minimum(closest_dist_sq, new_distances ** 2)
-        else:
-            raise ValueError("Unsupported initialization method")
+            # Choose the next center
+            probabilities = distances / distances.sum()
+            cumulative_probabilities = np.cumsum(probabilities)
+            r = np.random.rand()
+            next_center_idx = np.searchsorted(cumulative_probabilities, r)
+            self.centers.append(X[next_center_idx])
+        self.centers = np.array(self.centers)
 
     def _compute_distances(self, X):
         if self.n_jobs is None or self.n_jobs == 1:
@@ -184,11 +173,17 @@ class KMeansWasserstein(BaseEstimator, ClusterMixin):
             raise ValueError("Unsupported distance metric")
 
     def _compute_distances_parallel(self, X):
+        split_size = X.shape[0] // self.n_jobs
+        X_split = np.array_split(X, self.n_jobs)
+    
         with ProcessPoolExecutor(max_workers=self.n_jobs) as executor:
             if self.distance_metric == 'euclidean':
-                return np.vstack(executor.map(lambda x: cdist([x], self.centers, 'euclidean').flatten(), X))
+                # Use the standalone function for euclidean distance
+                results = list(executor.map(euclidean_parallel_helper, [(x, self.centers) for x in X_split]))
             elif self.distance_metric == 'wasserstein':
-                return np.vstack(executor.map(lambda x: [wasserstein_distance(x, center) for center in self.centers], X))
+                # Use the standalone function for wasserstein distance
+                results = list(executor.map(wasserstein_parallel_helper, [(x, self.centers) for x in X_split]))
+            return np.vstack(results)
 
     def _assign_clusters(self, distances):
         return np.argmin(distances, axis=1)
@@ -215,3 +210,19 @@ class KMeansWasserstein(BaseEstimator, ClusterMixin):
     def fit_predict(self, X):
         self.fit(X)
         return self.predict(X)
+    
+def compute_euclidean_distance(x, centers):
+    return cdist([x], centers, 'euclidean').flatten()
+
+def compute_wasserstein_distance(x, centers):
+    all_dist = []
+    for sample in x:
+        dist = [wasserstein_distance(sample, center) for center in centers]
+        all_dist.append(dist)
+    return np.array(all_dist)
+
+def euclidean_parallel_helper(args):
+    return compute_euclidean_distance(*args)
+
+def wasserstein_parallel_helper(args):
+    return compute_wasserstein_distance(*args)

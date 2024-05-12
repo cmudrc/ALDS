@@ -182,6 +182,7 @@ class PartitionScheduler():
             self._train_sub_models(train_config, torch.device('cuda'), subset_idx, is_parallel=False)
 
     def predict(self, x):
+        x = torch.tensor(x, dtype=torch.float32)
         # see if self.models is available
         if not hasattr(self, 'models'):
             raise ValueError('Models are not trained yet')
@@ -222,7 +223,7 @@ class PartitionScheduler():
                         # idx = subsets_idx_mask[batch_idx]
                         cur_pred = pred.result().detach().clone()
                         cur_idx = int(cur_pred[:, 1].max().item())
-                        print(cur_idx)
+                        # print(cur_idx)
                         cur_pred = cur_pred[:, 0]
                         idx = subsets_idx_mask[cur_idx]
                         predictions[idx] = cur_pred
@@ -230,7 +231,7 @@ class PartitionScheduler():
                         # batch_idx += 1
 
                     # wait for threads to finish before submitting the next batch
-                    executor.shutdown(wait=True)
+                    # executor.shutdown(wait=True)
 
         else:
             print('Using single GPU')
@@ -246,17 +247,20 @@ class PartitionScheduler():
 
         return predictions, labels
     
-    def recurrent_predict(self, x, num_iters):
+    def recurrent_predict(self, x, x_list, num_iters):
         all_predictions = []
         all_labels = []
-        predictions = x
+        predictions = x_list
         for i in range(num_iters):
+            # print(i)
             pred, _ = self.predict(predictions)
             predictions = pred.cpu().clone()
-            prediction_reconstructed = self.dataset.reconstruct_from_partitions(x, predictions)
+            prediction_reconstructed = self.dataset.reconstruct_from_partitions(x.unsqueeze(0), predictions)
+            # print(prediction_reconstructed.shape)
             all_predictions.append(predictions)
             all_labels.append(_)
-            predictions = self.dataset.get_partition_domain(prediction_reconstructed)
+            predictions = self.dataset.get_partition_domain(prediction_reconstructed.squeeze(0), mode='test')
+            predictions = torch.stack(predictions)
 
         return all_predictions, all_labels
     

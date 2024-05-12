@@ -408,11 +408,11 @@ class JHTDB_ICML(Dataset):
             for j in range(num_partitions_dim):
                 x[:, i*self.sub_size:(i+1)*self.sub_size, j*self.sub_size:(j+1)*self.sub_size, :] = x_list[i*num_partitions_dim + j].unsqueeze(0)
 
-        if pad_size == 1:
-            return x
-        else:
-            x = x[:, pad_size-1:-pad_size+1, pad_size-1:-pad_size+1, :]
-            return x
+        # if pad_size == 1:
+        #     return x[:, 1:-1, 1:-1, :]
+        # else:
+        x = x[:, pad_size:-pad_size, pad_size:-pad_size, :]
+        return x
 
     def process(self, flag_partition=False):
         if not (os.path.exists(os.path.join(self.root, 'raw', 'data.h5')) or os.path.exists(os.path.join(self.root, 'processed', 'data.pt'))):

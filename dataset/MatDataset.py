@@ -7,8 +7,8 @@ import scipy.io
 import ctypes
 import h5py
 import shutil
-import pyJHTDB
-from pyJHTDB import libJHTDB
+# import pyJHTDB
+# from pyJHTDB import libJHTDB
 import sklearn.metrics
 # from torch_geometric.data import Data, InMemoryDataset
 from torch.utils.data import Dataset
@@ -475,10 +475,10 @@ class JHTDB_RECTANGULAR(Dataset):
         self.fields = fields
         self.dataset = dataset
         self.flag_partition = partition
-        self.jhtdb = pyJHTDB.libJHTDB()
-        self.jhtdb.initialize()
-        self.jhtdb.lib.turblibSetExitOnError(ctypes.c_int(0))
-        self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
+        # self.jhtdb = pyJHTDB.libJHTDB()
+        # self.jhtdb.initialize()
+        # self.jhtdb.lib.turblibSetExitOnError(ctypes.c_int(0))
+        # self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
         
         if partition:
             self.sub_size = kwargs['sub_size']
@@ -587,10 +587,15 @@ class JHTDB_RECTANGULAR(Dataset):
         # print(x.shape)
         x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode='test')
         
-        num_partitions_dim_x = x.shape[2] - self.sub_size - 1
-        num_partitions_dim_y = x.shape[1] - self.sub_size - 1
+        num_partitions_dim_x = x.shape[2] - self.sub_size - 5
+        num_partitions_dim_y = x.shape[1] - self.sub_size - 5
 
-        x = torch.zeros_like(x)
+        # print(self.sub_size)
+        # print(num_partitions_dim_x, num_partitions_dim_y)
+
+        x = torch.zeros_like(x)[:, 2:-2, 2:-2, :]
+        # print(x.shape)
+        # print(len(x_list))
         # if the domain can be fully partitioned into subdomains of the same size
         # if len(x_list) == num_partitions_dim**2:
         for i in range(num_partitions_dim_x):

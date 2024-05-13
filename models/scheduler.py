@@ -181,7 +181,7 @@ class PartitionScheduler():
             print('Using single GPU')
             self._train_sub_models(train_config, torch.device('cuda'), subset_idx, is_parallel=False)
 
-    def predict(self, x, max_subset_size=1000):
+    def predict(self, x, max_subset_size=10000):
         # x = torch.tensor(x, dtype=torch.float32)
         # see if self.models is available
         if not hasattr(self, 'models'):
@@ -193,6 +193,7 @@ class PartitionScheduler():
         num_subsets = 0
         x_subsets = []
         subsets_idx_mask = []
+        model_idx = []
         for i in range(self.num_partitions):
             idx = np.where(labels == i)[0]
             # check if the subset exceeds the maximum size
@@ -201,14 +202,18 @@ class PartitionScheduler():
                 for j in range(num_cur_subsets):
                     x_subsets.append(x[idx[j*max_subset_size:(j+1)*max_subset_size]])
                     subsets_idx_mask.append(idx[j*max_subset_size:(j+1)*max_subset_size])
+                    model_idx.append(i)
                 num_subsets += num_cur_subsets
                 if len(idx) % max_subset_size != 0:
-                    x_subsets.append(x[idx[num_subsets*max_subset_size:]])
-                    subsets_idx_mask.append(idx[num_subsets*max_subset_size:])
+                    x_subsets.append(x[idx[num_cur_subsets*max_subset_size:]])
+                    subsets_idx_mask.append(idx[num_cur_subsets*max_subset_size:])
                     num_subsets += 1
+                    model_idx.append(i)
             else:
                 x_subsets.append(x[idx])
                 subsets_idx_mask.append(idx)
+                num_subsets += 1
+                model_idx.append(i)
         # print(len(x_subsets), len(subsets_idx_mask))
         print(f'Predicting on {len(x_subsets)} subsets')
         if torch.cuda.device_count() > 1:
@@ -224,7 +229,7 @@ class PartitionScheduler():
                             break 
                         cur_subset = x_subsets[idx].detach().clone().to(device)
                         # print(cur_subset.device)
-                        cur_model = self.models[idx].to(device)
+                        cur_model = self.models[model_idx[idx]].to(device)
                         # print(cur_model.mlp0.mlp1.weight.device)
                         pred = executor.submit(self._predict_sub_model, cur_model, cur_subset, idx)
                         exec_list.append(pred)
@@ -249,14 +254,13 @@ class PartitionScheduler():
         else:
             print('Using single GPU')
             device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-            for i, model in enumerate(self.models):
-                cur_subset = x_subsets[i].to(device)
-                if len(cur_subset) == 0:
-                    continue
-                cur_model = model.to(device)
+            for i in range(num_subsets):
+                cur_subset = x_subsets[i].detach().clone().to(device)
+                cur_model = self.models[model_idx[i]].to(device)
                 pred = self._predict_sub_model(cur_model, cur_subset)
+                cur_pred = pred.detach().cpu()
                 idx = subsets_idx_mask[i]
-                predictions[idx] = pred
+                predictions[idx] = cur_pred
 
         return predictions, labels
     

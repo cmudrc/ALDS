@@ -1,6 +1,6 @@
 # must have configs
 n_clusters: 3
-save_mode: 'save'
+save_mode: 'save_png'
 
 # encoder configs
 n_components: 20
@@ -24,4 +24,4 @@ sub_size: 8
 
 # pred configs
 idxs: [30]
-timesteps: 20
+timesteps: 4

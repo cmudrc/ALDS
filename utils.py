@@ -64,9 +64,9 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     colormap = plt.cm.tab20
 
     mask = np.zeros((window_size_y, window_size_x))
-    for i in range(window_size_x // sub_size):
-        for j in range(window_size_y // sub_size):
-            mask[j * sub_size:(j + 1) * sub_size, i * sub_size:(i + 1) * sub_size] = labels[i * (window_size_y // sub_size) + j]
+    for i in range(window_size_x - sub_size - 1):
+        for j in range(window_size_y - sub_size - 1):
+            mask[j:j + sub_size, i:i + sub_size] = labels[i * (window_size_y - sub_size - 1) + j]
 
     # revert y axis of mask
     mask = np.flip(mask, axis=0)

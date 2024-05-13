@@ -181,8 +181,8 @@ class PartitionScheduler():
             print('Using single GPU')
             self._train_sub_models(train_config, torch.device('cuda'), subset_idx, is_parallel=False)
 
-    def predict(self, x):
-        x = torch.tensor(x, dtype=torch.float32)
+    def predict(self, x, max_subset_size=1000):
+        # x = torch.tensor(x, dtype=torch.float32)
         # see if self.models is available
         if not hasattr(self, 'models'):
             raise ValueError('Models are not trained yet')
@@ -190,24 +190,37 @@ class PartitionScheduler():
         labels = self.classifier.cluster(latent_space)
         predictions = torch.zeros_like(x)
         # get all subsets
+        num_subsets = 0
         x_subsets = []
         subsets_idx_mask = []
         for i in range(self.num_partitions):
             idx = np.where(labels == i)[0]
-            x_subsets.append(x[idx])
-            subsets_idx_mask.append(idx)
+            # check if the subset exceeds the maximum size
+            if len(idx) > max_subset_size:
+                num_cur_subsets = len(idx) // max_subset_size
+                for j in range(num_cur_subsets):
+                    x_subsets.append(x[idx[j*max_subset_size:(j+1)*max_subset_size]])
+                    subsets_idx_mask.append(idx[j*max_subset_size:(j+1)*max_subset_size])
+                num_subsets += num_cur_subsets
+                if len(idx) % max_subset_size != 0:
+                    x_subsets.append(x[idx[num_subsets*max_subset_size:]])
+                    subsets_idx_mask.append(idx[num_subsets*max_subset_size:])
+                    num_subsets += 1
+            else:
+                x_subsets.append(x[idx])
+                subsets_idx_mask.append(idx)
         # print(len(x_subsets), len(subsets_idx_mask))
         print(f'Predicting on {len(x_subsets)} subsets')
         if torch.cuda.device_count() > 1:
             print(f'Using {torch.cuda.device_count()} GPUs')
             device_list = [torch.device(f'cuda:{i}') for i in range(torch.cuda.device_count())]          
             # assign model and corresponding data to different gpus and predict in parallel
-            for num_execs in range(self.num_partitions // torch.cuda.device_count() + 1):
+            for num_execs in range(num_subsets // torch.cuda.device_count() + 1):
                 exec_list = []
                 with ThreadPoolExecutor(max_workers=torch.cuda.device_count()) as executor:
                     for i, device in enumerate(device_list):
                         idx = num_execs * torch.cuda.device_count() + i
-                        if idx >= self.num_partitions:
+                        if idx >= num_subsets:
                             break 
                         cur_subset = x_subsets[idx].detach().clone().to(device)
                         # print(cur_subset.device)

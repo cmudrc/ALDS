@@ -310,10 +310,10 @@ class JHTDB_ICML(Dataset):
         self.fields = fields
         self.dataset = dataset
         self.flag_partition = partition
-        self.jhtdb = pyJHTDB.libJHTDB()
-        self.jhtdb.initialize()
-        self.jhtdb.lib.turblibSetExitOnError(ctypes.c_int(0))
-        self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
+        # self.jhtdb = pyJHTDB.libJHTDB()
+        # self.jhtdb.initialize()
+        # self.jhtdb.lib.turblibSetExitOnError(ctypes.c_int(0))
+        # self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
         
         if partition:
             self.sub_size = kwargs['sub_size']
@@ -549,8 +549,10 @@ class JHTDB_RECTANGULAR(Dataset):
         # pad the domain symmetrically to make it divisible by sub_size
         x_dim = len(x.shape)
         partition_sub_size = self.sub_size
-        pad_size_x = (x.shape[x_dim-2] % partition_sub_size) // 2 + 2
-        pad_size_y = (x.shape[x_dim-3] % partition_sub_size) // 2 + 2
+        # pad_size_x = (x.shape[x_dim-2] % partition_sub_size) // 2 + 2
+        # pad_size_y = (x.shape[x_dim-3] % partition_sub_size) // 2 + 2
+        pad_size_x = 2
+        pad_size_y = 2
 
         x = F.pad(x, (0, 0, pad_size_x, pad_size_x, pad_size_y, pad_size_y))
         # print(x[0, :, :, 0])
@@ -573,8 +575,8 @@ class JHTDB_RECTANGULAR(Dataset):
         x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode)
         # partition the domain into num_partitions subdomains of the same size
         x_list = []
-        num_partitions_dim_x = x.shape[1] - partition_sub_size - 1
-        num_partitions_dim_y = x.shape[0] - partition_sub_size - 1
+        num_partitions_dim_x = x.shape[1] - partition_sub_size + 1
+        num_partitions_dim_y = x.shape[0] - partition_sub_size + 1
 
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
@@ -586,21 +588,20 @@ class JHTDB_RECTANGULAR(Dataset):
         # print(self.sub_size)
         # print(x.shape)
         x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode='test')
-        
-        num_partitions_dim_x = x.shape[2] - self.sub_size - 5
-        num_partitions_dim_y = x.shape[1] - self.sub_size - 5
 
         # print(self.sub_size)
         # print(num_partitions_dim_x, num_partitions_dim_y)
 
-        x = torch.zeros_like(x)[:, 2:-2, 2:-2, :]
+        x = torch.zeros_like(x)
+        num_partitions_dim_x = x.shape[2] - self.sub_size + 1 - 4
+        num_partitions_dim_y = x.shape[1] - self.sub_size + 1 - 4
         # print(x.shape)
         # print(len(x_list))
         # if the domain can be fully partitioned into subdomains of the same size
         # if len(x_list) == num_partitions_dim**2:
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
-                x[:, j:j+self.sub_size, i:i+self.sub_size, :] = x_list[i*num_partitions_dim_y + j][2:-2, 2:-2, :]
+                x[:, 2+j:j+2+self.sub_size, 2+i:i+2+self.sub_size, :] = x_list[i*num_partitions_dim_y + j][2:-2, 2:-2, :]
 
         if pad_size_x == 1 and pad_size_y > 1:
             return x[:, pad_size_y:-pad_size_y, :, :]

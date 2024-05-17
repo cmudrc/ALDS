@@ -22,7 +22,7 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
         all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_tensor, kwargs['timesteps'])
         timestep = idxs[0]
         for pred_y_list, labels in zip(all_pred_y_list, all_labels):
-            _, sub_y_list, _ = dataset.get_one_full_sample(timestep+10)
+            _, sub_y_list, _ = dataset.get_one_full_sample(timestep+1)
             pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
             sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
 

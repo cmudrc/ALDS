@@ -189,7 +189,15 @@ class KMeansWasserstein(BaseEstimator, ClusterMixin):
         return np.argmin(distances, axis=1)
 
     def _update_centers(self, X, labels):
-        new_centers = np.array([X[labels == i].mean(axis=0) for i in range(self.n_clusters)])
+        new_centers = []
+        for i in range(self.n_clusters):
+            if np.any(labels == i):
+                new_center = X[labels == i].mean(axis=0)
+            else:
+                # Reinitialize empty cluster to a random data point
+                new_center = X[np.random.randint(0, X.shape[0])]
+            new_centers.append(new_center)
+        new_centers = np.array(new_centers)
         shift = np.linalg.norm(self.centers - new_centers)
         self.centers = new_centers
         return shift

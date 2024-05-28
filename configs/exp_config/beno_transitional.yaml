@@ -11,6 +11,11 @@ domain_size: 0.1963495
 # model configs
 in_channels: 8
 out_channels: 8
+width: 20
+latent_dim: 128
+message_passing_steps: 10
+nmlp_layers: 2
+mlp_hidden_dim: 128
 
 # data configs
 root: 'data/jhtdb_transition_bl'

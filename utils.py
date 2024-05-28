@@ -140,6 +140,8 @@ def init_model(type, in_channels, out_channels, **kwargs):
         return FNO2d(in_channels, out_channels, **kwargs)
     elif type == 'teecnet':
         return TEECNetConv(in_channels, out_channels, **kwargs)
+    elif type == 'beno':
+        return HeteroGNS(in_channels, out_channels, **kwargs)
     else:
         raise ValueError(f'Invalid model type: {type}')
     
@@ -149,6 +151,8 @@ def init_dataset(name, **kwargs):
         return JHTDB_ICML(**kwargs)
     elif name == 'transition_bl':
         return JHTDB_RECTANGULAR(**kwargs)
+    elif name == 'transition_bc':
+        return JHTDB_RECTANGULAR_BOUNDARY(**kwargs)
     else:
         raise ValueError(f'Invalid dataset name: {name}')
     

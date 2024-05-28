@@ -202,12 +202,12 @@ class SpectrumEncoder(Encoder):
 
         # Compute the point-wise turbulent kinetic energy
         Ef = 0.5 * (uf * np.conj(uf)).real
-        kx = 2 * np.pi / lx 
-        ky = 2 * np.pi / ly
-        knorm = np.sqrt(kx ** 2 + ky ** 2)
+        # kx = 2 * np.pi / lx 
+        # ky = 2 * np.pi / ly
+        # knorm = np.sqrt(kx ** 2 + ky ** 2)
         kxmax = nx / 2
         kymax = ny / 2
-        wave_numbers = knorm * np.arange(0, nx)
+        # wave_numbers = knorm * np.arange(0, nx)
         tke_spectrum = np.zeros(nx)
         for i in range(nx):
             rkx = i
@@ -224,7 +224,7 @@ class SpectrumEncoder(Encoder):
 
         # plt.loglog(wave_numbers[1:], tke_spectrum[1:])
         # plt.savefig('tke_spectrum.png')
-        return tke_spectrum[1:]
+        return np.log(tke_spectrum[1:])
 
     def get_latent_space(self, dataset):
         dataset = [[data[0], self.domain_size, self.domain_size] for data in dataset.data]

@@ -5,6 +5,9 @@ from torch.nn.init import uniform_ as reset
 # import torch_geometric.nn as pyg_nn
 # from torch_geometric.nn.inits import reset, uniform
 import torch.nn.functional as F
+    
+from transformer import *
+import pdb
 # from torch_scatter import scatter_softmax
 
 
@@ -444,3 +447,132 @@ class FNO2d(nn.Module):
         gridy = torch.linspace(0, 1, size_y)
         gridy = gridy.reshape(1, 1, size_y, 1).repeat([batchsize, size_x, 1, 1])
         return torch.cat((gridx, gridy), dim=-1).to(device)
+
+
+def build_mlp(
+        input_size: int,
+        hidden_layer_sizes: list,
+        output_size: int = None,
+        output_activation: nn.Module = nn.Identity,
+        activation: nn.Module = nn.ReLU) -> nn.Module:
+
+    layer_sizes = [input_size] + hidden_layer_sizes
+    if output_size:
+        layer_sizes.append(output_size)
+
+    nlayers = len(layer_sizes) - 1
+    act = [activation for _ in range(nlayers)]
+    act[-1] = output_activation
+
+    mlp = nn.Sequential()
+    for i in range(nlayers):
+        mlp.add_module(f"NN-{i}", nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
+        mlp.add_module(f"Act-{i}", act[i]())
+
+    return mlp
+
+class Encoder(nn.Module):
+    def __init__(
+            self,
+            input_features: int,
+            output_features: int,
+            nmlp_layers: int,
+            mlp_hidden_dim: int,
+            activation: nn.Module):
+        super(Encoder, self).__init__()
+
+        self.mlp = nn.Sequential(
+            build_mlp(input_features, [mlp_hidden_dim for _ in range(nmlp_layers)], output_features, activation=activation),
+            nn.LayerNorm(output_features)
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.mlp(x)
+
+class InteractionNetwork(nn.Module):
+    def __init__(
+            self,
+            input_features: int,
+            output_features: int,
+            nmlp_layers: int,
+            mlp_hidden_dim: int,
+            boundary_dim: int,
+            trans_layer: int,
+            activation: nn.Module = nn.ReLU):
+        super(InteractionNetwork, self).__init__()
+
+        self.node_fn = nn.Sequential(
+            build_mlp(input_features + boundary_dim, [mlp_hidden_dim for _ in range(nmlp_layers)], output_features, activation=activation),
+            nn.LayerNorm(output_features)
+        )
+        self.boundary_fn = Transformer(enc_in=3, d_model=boundary_dim, n_heads=2, enc_layers=trans_layer)
+
+    def forward(self, x: torch.Tensor, boundary: torch.Tensor) -> torch.Tensor:
+        boundary = boundary.unsqueeze(0).float()
+        boundary = self.boundary_fn(boundary)
+        boundary_all = boundary.repeat(x.shape[0], 1)
+        x = torch.cat([x, boundary_all], dim=-1)
+        return self.node_fn(x)
+
+class Processor(nn.Module):
+    def __init__(
+            self,
+            input_features: int,
+            output_features: int,
+            nmlp_layers: int,
+            mlp_hidden_dim: int,
+            boundary_dim: int,
+            trans_layer: int,
+            nmessage_passing_steps: int,
+            activation: nn.Module):
+        super(Processor, self).__init__()
+
+        self.layers = nn.ModuleList([
+            InteractionNetwork(input_features, output_features, nmlp_layers, mlp_hidden_dim, boundary_dim, trans_layer, activation)
+            for _ in range(nmessage_passing_steps)
+        ])
+
+    def forward(self, x: torch.Tensor, boundary: torch.Tensor) -> torch.Tensor:
+        for layer in self.layers:
+            x = layer(x, boundary)
+        return x
+
+class Decoder(nn.Module):
+    def __init__(
+            self,
+            input_features: int,
+            output_features: int,
+            nmlp_layers: int,
+            mlp_hidden_dim: int,
+            activation: nn.Module):
+        super(Decoder, self).__init__()
+
+        self.mlp = build_mlp(input_features, [mlp_hidden_dim for _ in range(nmlp_layers)], output_features, activation=activation)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.mlp(x)
+
+class HeteroGNS(nn.Module):
+    def __init__(
+            self,
+            input_features: int,
+            output_features: int,
+            latent_dim: int = 128,
+            nmessage_passing_steps: int = 10,
+            nmlp_layers: int = 2,
+            mlp_hidden_dim: int = 128,
+            activation: nn.Module = nn.ELU,
+            boundary_dim: int = 128,
+            trans_layer: int = 3):
+        super(HeteroGNS, self).__init__()
+
+        self.encoder = Encoder(input_features, latent_dim, nmlp_layers, mlp_hidden_dim, activation)
+        self.processor = Processor(latent_dim, latent_dim, nmlp_layers, mlp_hidden_dim, boundary_dim, trans_layer, nmessage_passing_steps, activation)
+        self.decoder = Decoder(latent_dim, output_features, nmlp_layers, mlp_hidden_dim, activation)
+
+    def forward(self, x) -> torch.Tensor:
+        x, boundary = x
+        x = self.encoder(x)
+        x = self.processor(x, boundary)
+        x = self.decoder(x)
+        return x

@@ -6,7 +6,7 @@ from torch.nn.init import uniform_ as reset
 # from torch_geometric.nn.inits import reset, uniform
 import torch.nn.functional as F
     
-from transformer import *
+from models.transformer import *
 import pdb
 # from torch_scatter import scatter_softmax
 
@@ -563,7 +563,8 @@ class HeteroGNS(nn.Module):
             mlp_hidden_dim: int = 128,
             activation: nn.Module = nn.ELU,
             boundary_dim: int = 128,
-            trans_layer: int = 3):
+            trans_layer: int = 3,
+            **kwargs):
         super(HeteroGNS, self).__init__()
 
         self.encoder = Encoder(input_features, latent_dim, nmlp_layers, mlp_hidden_dim, activation)

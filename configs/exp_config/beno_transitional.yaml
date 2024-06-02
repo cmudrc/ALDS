@@ -18,9 +18,9 @@ nmlp_layers: 2
 mlp_hidden_dim: 128
 
 # data configs
-root: 'data/jhtdb_transition_bl'
+root: 'data/jhtdb_transition_bc'
 tstart: 1
-tend: 100
+tend: 20
 fields: 'u'
 dataset: 'transition_bl'
 partition: True

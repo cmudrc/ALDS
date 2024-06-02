@@ -227,7 +227,7 @@ class SpectrumEncoder(Encoder):
         return np.log(tke_spectrum[1:])
 
     def get_latent_space(self, dataset):
-        if dataset[0].shape[0] == 2:
+        if len(dataset.data[0]) > 2:
             dataset = [[data[0], self.domain_size, self.domain_size] for data in dataset]
         dataset = [[data[0], self.domain_size, self.domain_size] for data in dataset.data]
         with Pool() as p:

@@ -706,7 +706,7 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         os.makedirs(os.path.join(self.root, 'processed'), exist_ok=True)
         u_list = []
         print(self.valid_tsteps)
-        for i in range(self.tend - self.tstart - 11):
+        for i in range(self.tend - self.tstart - 5):
             with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(i+1)), 'r') as f:
                 u_idx = str(i+1).rjust(4, '0')
                 u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
@@ -718,7 +718,6 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
                     u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
                     u_label = torch.tensor(u_label[0, :, :, :])
                     u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
-
                     if flag_partition:
                         u_input_list, bc_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
                         u_label_list, _ = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
@@ -726,7 +725,7 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
                             u_list.append([u_input, bc_input, u_label])
                     else:
                         u_list.append([u_input, u_label])
-
+            print('Processed data at time step {}'.format(i))
         torch.save(u_list, os.path.join(self.root, 'processed', 'data.pt'))
 
     def symmetric_padding(self, x, mode):

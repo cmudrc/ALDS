@@ -224,12 +224,13 @@ class SpectrumEncoder(Encoder):
 
         # plt.loglog(wave_numbers[1:], tke_spectrum[1:])
         # plt.savefig('tke_spectrum.png')
-        return np.log(tke_spectrum[1:])
+        return np.log(tke_spectrum[1:] + 1e-8)
 
     def get_latent_space(self, dataset):
-        if len(dataset.data[0]) > 2:
+        try:
+            dataset = [[data[0][:, :, 0], self.domain_size, self.domain_size] for data in dataset]
+        except:
             dataset = [[data[0], self.domain_size, self.domain_size] for data in dataset]
-        dataset = [[data[0], self.domain_size, self.domain_size] for data in dataset.data]
         with Pool() as p:
             latent_space = p.map(self._compute_tke_spectrum, dataset)
         return np.array(latent_space)

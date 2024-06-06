@@ -11,6 +11,7 @@ domain_size: 0.1963495
 # model configs
 in_channels: 8
 out_channels: 8
+width: 20
 
 # data configs
 root: 'data/jhtdb_transition_bl'

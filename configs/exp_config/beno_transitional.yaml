@@ -20,7 +20,7 @@ mlp_hidden_dim: 128
 # data configs
 root: 'data/jhtdb_transition_bc'
 tstart: 1
-tend: 20
+tend: 10
 fields: 'u'
 dataset: 'transition_bl'
 partition: True

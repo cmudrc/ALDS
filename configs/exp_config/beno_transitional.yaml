@@ -9,8 +9,8 @@ domain_size: 0.1963495
 # classifier configs
 
 # model configs
-in_channels: 8
-out_channels: 8
+in_channels: 3
+out_channels: 1
 width: 20
 latent_dim: 128
 message_passing_steps: 10
@@ -20,7 +20,7 @@ mlp_hidden_dim: 128
 # data configs
 root: 'data/jhtdb_transition_bc'
 tstart: 1
-tend: 3
+tend: 7
 fields: 'u'
 dataset: 'transition_bl'
 partition: True

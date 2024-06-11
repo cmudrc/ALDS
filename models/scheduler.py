@@ -22,7 +22,7 @@ class PartitionScheduler():
         self.num_partitions = num_partitons
         self.encoder = encoder
         self.classifier = classifier
-        self.model = 'fno' # just for testing purposes
+        self.model = model
         self.dataset = dataset
 
         self.subsets = self._train_partitions(num_partitons, train)
@@ -33,12 +33,7 @@ class PartitionScheduler():
         return self.subsets
     
     def _initialize_model(self, model_type, in_channels, out_channels, **kwargs):
-        if model_type == 'fno':
-            return FNO2d(in_channels, out_channels, **kwargs)
-        elif model_type == 'teecnet':
-            return TEECNetConv(in_channels, out_channels, **kwargs)
-        else:
-            raise ValueError(f'Invalid model type: {model_type}')
+        return self.model
     
     def _load_models(self):
         models = []
@@ -106,10 +101,15 @@ class PartitionScheduler():
                 model.train()
                 loss_epoch = 0
                 for batch_idx, (x, y) in enumerate(train_loader):
-                    x, y = x.to(device), y.to(device)
-                    # print(x.shape, y.shape)
                     optimizer.zero_grad()
-                    pred = model(x)
+                    try:
+                        x, y = x.to(device), y.to(device)
+                        pred = model(x)
+                    except:
+                        x, boundary, y = x[0].to(device), x[1].to(device), y[:, :, :, 0].unsqueeze(-1).to(device)
+                        pred = model(x, boundary)
+                    # print(x.shape, y.shape)
+                    
                     loss = criterion(pred, y)
 
                     loss_epoch += loss.item()
@@ -127,8 +127,13 @@ class PartitionScheduler():
                     with torch.no_grad():
                         val_loss = 0
                         for x, y in val_loader:
-                            x, y = x.to(device), y.to(device)
-                            pred = model(x)
+                            try:
+                                x, y = x.to(device), y.to(device) 
+                                pred = model(x)
+                            except:
+                                x, boundary, y = x[0].to(device), x[1].to(device), y[:, :, :, 0].unsqueeze(-1).to(device)
+                                pred = model(x, boundary)
+
                             val_loss += criterion(pred, y).item()
                         val_loss /= len(val_loader)
                         wandb.log({'val_loss': val_loss})
@@ -136,8 +141,12 @@ class PartitionScheduler():
 
                         # plot one sample from the validation set
                         x, y = val_dataset[0]
-                        x = x.unsqueeze(0).to(device)
-                        pred = model(x).squeeze(0)
+                        try:
+                            x, y = x.to(device), y.to(device)
+                            pred = model(x)
+                        except:
+                            x, boundary, y = x[0].to(device), x[1].to(device), y[:, :, 0].unsqueeze(-1).to(device)
+                            pred = model(x, boundary)
                         self._plot_prediction(y, pred)
                         
                         # torch.save(model.state_dict(), f'logs/models/partition_{i}_epoch_{epoch}.pth')
@@ -312,4 +321,4 @@ class PartitionScheduler():
                 val_loss /= len(val_loader)
                 print(f'Subset {j}, Model {i}, Validation Loss: {val_loss}')
             # wandb.log({'val_loss': val_loss})
-            # wandb.finish()
+            # wandb.finish() 

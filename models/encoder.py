@@ -98,7 +98,10 @@ class PCAEncoder(Encoder):
     def train(self, dataset, save_model=False, path=None):
         data_space = []
         for data in dataset:
-            x, y = data
+            try:
+                x = data[0][0][:, :, 0]
+            except:
+                x, y = data
             data_space.append(x.cpu().detach().numpy().reshape(-1))
         self.model.fit(np.array(data_space))
         # dump(self.model, 'logs/models/collection_fno_jhtdb/pca_encoder.joblib')
@@ -111,7 +114,10 @@ class PCAEncoder(Encoder):
     def get_latent_space(self, dataset):
         data_space = []
         for data in dataset:
-            x = data[0][:, :, 0]
+            try:
+                x = data[0][0][:, :, 0]
+            except:
+                x = data[0]
 
             data_space.append(x.cpu().detach().numpy().reshape(-1))
         latent_space = self.model.transform(np.array(data_space))
@@ -229,7 +235,7 @@ class SpectrumEncoder(Encoder):
 
     def get_latent_space(self, dataset):
         try:
-            dataset = [[data[0][:, :, 0], self.domain_size, self.domain_size] for data in dataset]
+            dataset = [[data[0][0][:, :, 0], self.domain_size, self.domain_size] for data in dataset]
         except:
             dataset = [[data[0], self.domain_size, self.domain_size] for data in dataset]
         with Pool() as p:

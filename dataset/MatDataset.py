@@ -722,7 +722,7 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
                         u_input_list, bc_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
                         u_label_list, _ = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
                         for u_input, bc_input, u_label in zip(u_input_list, bc_input_list, u_label_list):
-                            u_list.append([u_input, bc_input, u_label])
+                            u_list.append([[u_input, bc_input], u_label])
                     else:
                         u_list.append([u_input, u_label])
             print('Processed data at time step {}'.format(i))

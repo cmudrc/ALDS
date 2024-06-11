@@ -505,13 +505,13 @@ class InteractionNetwork(nn.Module):
             build_mlp(input_features + boundary_dim, [mlp_hidden_dim for _ in range(nmlp_layers)], output_features, activation=activation),
             nn.LayerNorm(output_features)
         )
-        self.boundary_fn = Transformer(enc_in=3, d_model=boundary_dim, n_heads=2, enc_layers=trans_layer)
+        self.boundary_fn = Transformer(enc_in=5, d_model=boundary_dim, n_heads=2, enc_layers=trans_layer)
 
     def forward(self, x: torch.Tensor, boundary: torch.Tensor) -> torch.Tensor:
-        boundary = boundary.unsqueeze(0).float()
+        boundary = boundary.float()
         boundary = self.boundary_fn(boundary)
-        boundary_all = boundary.repeat(x.shape[0], 1)
-        x = torch.cat([x, boundary_all], dim=-1)
+        boundary_all = boundary.repeat(x.shape[1], x.shape[2], 1, 1)
+        x = torch.cat([x, boundary_all.reshape(x.shape[0], x.shape[1], x.shape[2], x.shape[3])], dim=-1)
         return self.node_fn(x)
 
 class Processor(nn.Module):
@@ -571,8 +571,7 @@ class HeteroGNS(nn.Module):
         self.processor = Processor(latent_dim, latent_dim, nmlp_layers, mlp_hidden_dim, boundary_dim, trans_layer, nmessage_passing_steps, activation)
         self.decoder = Decoder(latent_dim, output_features, nmlp_layers, mlp_hidden_dim, activation)
 
-    def forward(self, x) -> torch.Tensor:
-        x, boundary = x
+    def forward(self, x, boundary) -> torch.Tensor:
         x = self.encoder(x)
         x = self.processor(x, boundary)
         x = self.decoder(x)

@@ -145,7 +145,7 @@ class PartitionScheduler():
                             x, y = x.to(device), y.to(device)
                             pred = model(x)
                         except:
-                            x, boundary, y = x[0].to(device), x[1].to(device), y[:, :, 0].unsqueeze(-1).to(device)
+                            x, boundary, y = x[0].unsqueeze(0).to(device), x[1].unsqueeze(0).to(device), y[:, :, 0].unsqueeze(0).unsqueeze(-1).to(device)
                             pred = model(x, boundary)
                         self._plot_prediction(y, pred)
                         

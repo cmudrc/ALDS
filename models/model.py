@@ -390,7 +390,7 @@ class FNO2d(nn.Module):
         self.width = width
         self.padding = 9 # pad the domain if input is non-periodic
 
-        self.p = nn.Linear(3, self.width) # input channel is 3: (a(x, y), x, y)
+        self.p = nn.Linear(258, self.width) # input channel is 3: (a(x, y), x, y)
         self.conv0 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
         self.conv1 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
         self.conv2 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
@@ -403,7 +403,7 @@ class FNO2d(nn.Module):
         self.w1 = nn.Conv2d(self.width, self.width, 1)
         self.w2 = nn.Conv2d(self.width, self.width, 1)
         self.w3 = nn.Conv2d(self.width, self.width, 1)
-        self.q = MLP(self.width, 1, self.width * 4) # output channel is 1: u(x, y)
+        self.q = MLP(self.width, 128, self.width * 4) # output channel is 1: u(x, y)
 
     def forward(self, x):
         grid = self.get_grid(x.shape, x.device)
@@ -501,17 +501,14 @@ class InteractionNetwork(nn.Module):
             activation: nn.Module = nn.ReLU):
         super(InteractionNetwork, self).__init__()
 
-        self.node_fn = nn.Sequential(
-            build_mlp(input_features + boundary_dim, [mlp_hidden_dim for _ in range(nmlp_layers)], output_features, activation=activation),
-            nn.LayerNorm(output_features)
-        )
+        self.node_fn = FNO2d(modes1=8, modes2=8, width=20)
         self.boundary_fn = Transformer(enc_in=5, d_model=boundary_dim, n_heads=2, enc_layers=trans_layer)
 
     def forward(self, x: torch.Tensor, boundary: torch.Tensor) -> torch.Tensor:
         boundary = boundary.float()
         boundary = self.boundary_fn(boundary)
         boundary_all = boundary.repeat(x.shape[1], x.shape[2], 1, 1).permute(2, 0, 1, 3)
-        x = torch.cat([x, boundary_all.reshape(x.shape[0], x.shape[1], x.shape[2], x.shape[3])], dim=-1)
+        x = torch.cat([x, boundary_all.reshape(x.shape[0], x.shape[1], x.shape[2], boundary_all.shape[-1])], dim=-1)
         return self.node_fn(x)
 
 class Processor(nn.Module):

@@ -510,7 +510,7 @@ class InteractionNetwork(nn.Module):
     def forward(self, x: torch.Tensor, boundary: torch.Tensor) -> torch.Tensor:
         boundary = boundary.float()
         boundary = self.boundary_fn(boundary)
-        boundary_all = boundary.repeat(x.shape[1], x.shape[2], 1, 1)
+        boundary_all = boundary.repeat(x.shape[1], x.shape[2], 1, 1).permute(2, 0, 1, 3)
         x = torch.cat([x, boundary_all.reshape(x.shape[0], x.shape[1], x.shape[2], x.shape[3])], dim=-1)
         return self.node_fn(x)
 

@@ -17,12 +17,22 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
     
     r2_scores = []
     if 'timesteps' in kwargs:
-        x, sub_x_list, _ = dataset.get_one_full_sample(idxs[0])
-        sub_x_tensor = torch.stack(sub_x_list)
-        all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_tensor, kwargs['timesteps'])
+        try:
+            x, sub_x_list, _ = dataset.get_one_full_sample(idxs[0])
+            all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_tensor, num_iters=kwargs['timesteps'])
+        except:
+            x, sub_x_list, sub_boundary_list, _ = dataset.get_one_full_sample(idxs[0])
+            sub_x_tensor = torch.stack(sub_x_list)
+            sub_boundary_tensor = torch.stack(sub_boundary_list)    
+
+            all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_tensor, sub_boundary_tensor, num_iters=kwargs['timesteps'])
+        
         timestep = idxs[0]
         for pred_y_list, labels in zip(all_pred_y_list, all_labels):
-            _, sub_y_list, _ = dataset.get_one_full_sample(timestep+1)
+            try:
+                _, sub_y_list, _ = dataset.get_one_full_sample(timestep+1)
+            except:
+                _, sub_y_list, _, _ = dataset.get_one_full_sample(timestep+1)
             pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
             sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
 

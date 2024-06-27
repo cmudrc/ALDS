@@ -712,12 +712,16 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
                 u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
                 u_input = torch.tensor(u_input[0, :, :, :])
                 u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
+                # normalize the input
+                u_input = (u_input - torch.min(u_input)) / (torch.max(u_input) - torch.min(u_input))
                 # u_label at the next time step
                 with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(i+4)), 'r') as f:
                     u_label_idx = str(i+4).rjust(4, '0')  
                     u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
                     u_label = torch.tensor(u_label[0, :, :, :])
                     u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
+                    # normalize the label
+                    u_label = (u_label - torch.min(u_label)) / (torch.max(u_label) - torch.min(u_label))
                     if flag_partition:
                         u_input_list, bc_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
                         u_label_list, _ = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
@@ -824,7 +828,7 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         # if len(x_list) == num_partitions_dim**2:
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
-                x[:, 2+j:j+2+self.sub_size, 2+i:i+2+self.sub_size, :] = x_list[i*num_partitions_dim_y + j][2:-2, 2:-2, :]
+                x[:, 2+j:j+2+self.sub_size, 2+i:i+2+self.sub_size, :] = x_list[i*num_partitions_dim_y + j][2:-2, 2:-2, 0].unsqueeze(-1)
 
         if pad_size_x == 1 and pad_size_y > 1:
             return x[:, pad_size_y:-pad_size_y, :, :]
@@ -877,6 +881,6 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
                     u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
                     u_label = torch.tensor(u_label[0, :, :, :])
                     u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
-                    u_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
-                    u_label_list = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
-        return u_input.unsqueeze(-1), u_input_list, u_label_list
+                    u_input_list, boundary_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
+                    u_label_list, _ = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
+        return u_input.unsqueeze(-1), u_input_list, boundary_input_list, u_label_list

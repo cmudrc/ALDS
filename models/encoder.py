@@ -126,6 +126,10 @@ class PCAEncoder(Encoder):
     def get_latent(self, x):
         data_space = []
         for sub_x in x:
+            try:
+                sub_x = sub_x[:, :, 0]
+            except:
+                pass
             data_space.append(sub_x.cpu().detach().numpy().reshape(-1))
         latent_space = self.model.transform(np.array(data_space))
         return latent_space

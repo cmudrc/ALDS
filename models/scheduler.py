@@ -190,7 +190,7 @@ class PartitionScheduler():
             print('Using single GPU')
             self._train_sub_models(train_config, torch.device('cuda'), subset_idx, is_parallel=False)
 
-    def predict(self, x, max_subset_size=10000):
+    def predict(self, x, x_boundary=None, max_subset_size=10000):
         # x = torch.tensor(x, dtype=torch.float32)
         # see if self.models is available
         if not hasattr(self, 'models'):
@@ -201,6 +201,8 @@ class PartitionScheduler():
         # get all subsets
         num_subsets = 0
         x_subsets = []
+        if x_boundary is not None:
+            x_boundary_subsets = []
         subsets_idx_mask = []
         model_idx = []
         for i in range(self.num_partitions):
@@ -210,16 +212,22 @@ class PartitionScheduler():
                 num_cur_subsets = len(idx) // max_subset_size
                 for j in range(num_cur_subsets):
                     x_subsets.append(x[idx[j*max_subset_size:(j+1)*max_subset_size]])
+                    if x_boundary is not None:
+                        x_boundary_subsets.append(x_boundary[idx[j*max_subset_size:(j+1)*max_subset_size]])
                     subsets_idx_mask.append(idx[j*max_subset_size:(j+1)*max_subset_size])
                     model_idx.append(i)
                 num_subsets += num_cur_subsets
                 if len(idx) % max_subset_size != 0:
                     x_subsets.append(x[idx[num_cur_subsets*max_subset_size:]])
+                    if x_boundary is not None:
+                        x_boundary_subsets.append(x_boundary[idx[num_cur_subsets*max_subset_size:]])
                     subsets_idx_mask.append(idx[num_cur_subsets*max_subset_size:])
                     num_subsets += 1
                     model_idx.append(i)
             else:
                 x_subsets.append(x[idx])
+                if x_boundary is not None:
+                    x_boundary_subsets.append(x_boundary[idx])
                 subsets_idx_mask.append(idx)
                 num_subsets += 1
                 model_idx.append(i)
@@ -266,35 +274,51 @@ class PartitionScheduler():
             for i in range(num_subsets):
                 cur_subset = x_subsets[i].detach().clone().to(device)
                 cur_model = self.models[model_idx[i]].to(device)
-                pred = self._predict_sub_model(cur_model, cur_subset)
+                if x_boundary is not None:
+                    cur_boundary = x_boundary_subsets[i].detach().clone().to(device)
+                    pred = self._predict_sub_model(cur_model, cur_subset, cur_boundary)
+                else:
+                   pred = self._predict_sub_model(cur_model, cur_subset)
                 cur_pred = pred.detach().cpu()
                 idx = subsets_idx_mask[i]
                 predictions[idx] = cur_pred
 
         return predictions, labels
     
-    def recurrent_predict(self, x, x_list, num_iters):
+    def recurrent_predict(self, x, x_list, x_boundary_list=None, num_iters=1):
         all_predictions = []
         all_labels = []
         predictions = x_list
+        pred_boundary_list = x_boundary_list
         for i in range(num_iters):
             # print(i)
-            pred, _ = self.predict(predictions)
+            if x_boundary_list is not None:
+                pred, _ = self.predict(predictions, pred_boundary_list)
+            else:
+                pred, _ = self.predict(predictions)
             predictions = pred.cpu().clone()
             prediction_reconstructed = self.dataset.reconstruct_from_partitions(x.unsqueeze(0), predictions)
             # print(prediction_reconstructed.shape)
             all_predictions.append(predictions)
             all_labels.append(_)
-            predictions = self.dataset.get_partition_domain(prediction_reconstructed.squeeze(0), mode='test')
-            predictions = torch.stack(predictions)
+            try:
+                predictions = self.dataset.get_partition_domain(prediction_reconstructed.squeeze(0), mode='test')
+                predictions = torch.stack(predictions)
+            except:
+                predictions, pred_boundary_list = self.dataset.get_partition_domain(prediction_reconstructed.squeeze(0), mode='test')
+                predictions = torch.stack(predictions)
+                pred_boundary_list = torch.stack(pred_boundary_list)
 
         return all_predictions, all_labels
     
-    def _predict_sub_model(self, model, x, idx=None):
+    def _predict_sub_model(self, model, x, x_boundary=None, idx=None):
         # print(f'Predicting on {device}, with tensor on {x.device}')
         model.eval()
         with torch.no_grad():
-            pred = model(x).cpu()
+            if x_boundary is not None:
+                pred = model(x, x_boundary).cpu()
+            else:
+                pred = model(x).cpu()
         if idx is not None:
             # concatenate idx to the prediction
             pred = torch.stack([pred, torch.ones_like(pred) * idx], dim=1)

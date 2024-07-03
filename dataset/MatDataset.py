@@ -738,8 +738,8 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         partition_sub_size = self.sub_size
         # pad_size_x = (x.shape[x_dim-2] % partition_sub_size) // 2 + 2
         # pad_size_y = (x.shape[x_dim-3] % partition_sub_size) // 2 + 2
-        pad_size_x = 2
-        pad_size_y = 2
+        pad_size_x = 1
+        pad_size_y = 1
 
         x = F.pad(x, (0, 0, pad_size_x, pad_size_x, pad_size_y, pad_size_y))
         # print(x[0, :, :, 0])
@@ -758,8 +758,8 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
     def get_partition_domain(self, x, mode, displacement=0):
         # pad the domain symmetrically to make it divisible by sub_size
         # print(x.shape)
-        partition_sub_size = self.sub_size + 4
-        x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode)
+        partition_sub_size = self.sub_size + 2
+        # x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode)
         # partition the domain into num_partitions subdomains of the same size
         x_list = []
         boundary_list = []
@@ -814,31 +814,31 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         # reconstruct the domain from the partitioned subdomains
         # print(self.sub_size)
         # print(x.shape)
-        x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode='test')
+        # x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode='test')
 
         # print(self.sub_size)
         # print(num_partitions_dim_x, num_partitions_dim_y)
 
         x = torch.zeros_like(x)
-        num_partitions_dim_x = x.shape[2] - self.sub_size + 1 - 4
-        num_partitions_dim_y = x.shape[1] - self.sub_size + 1 - 4
+        num_partitions_dim_x = x.shape[2] - self.sub_size + 1 - 2
+        num_partitions_dim_y = x.shape[1] - self.sub_size + 1 - 2
         # print(x.shape)
         # print(len(x_list))
         # if the domain can be fully partitioned into subdomains of the same size
         # if len(x_list) == num_partitions_dim**2:
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
-                x[:, 2+j:j+2+self.sub_size, 2+i:i+2+self.sub_size, :] = x_list[i*num_partitions_dim_y + j][2:-2, 2:-2, 0].unsqueeze(-1)
+                x[:, 1+j:j+1+self.sub_size, 1+i:i+1+self.sub_size, :] = x_list[i*num_partitions_dim_y + j][1:-1, 1:-1, 0].unsqueeze(-1)
 
-        if pad_size_x == 1 and pad_size_y > 1:
-            return x[:, pad_size_y:-pad_size_y, :, :]
-        elif pad_size_y == 1 and pad_size_x > 1:
-            return x[:, :, pad_size_x:-pad_size_x, :]
-        elif pad_size_x == 1 and pad_size_y == 1:
-            return x
-        else:
-            x = x[:, pad_size_y:-pad_size_y, pad_size_x:-pad_size_x, :]
-            return x
+        # if pad_size_x == 1 and pad_size_y > 1:
+        #     return x[:, pad_size_y:-pad_size_y, :, :]
+        # elif pad_size_y == 1 and pad_size_x > 1:
+        #     return x[:, :, pad_size_x:-pad_size_x, :]
+        # elif pad_size_x == 1 and pad_size_y == 1:
+        #     return x
+        # else:
+        #     x = x[:, pad_size_y:-pad_size_y, pad_size_x:-pad_size_x, :]
+        return x[:, 1:-1, 1:-1, :]
         
     def process(self, flag_partition=False):
         if not (os.path.exists(os.path.join(self.root, 'raw', 'data_1.h5')) or os.path.exists(os.path.join(self.root, 'processed', 'data.pt'))):

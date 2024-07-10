@@ -28,4 +28,4 @@ sub_size: 12
 
 # pred configs
 idxs: [30]
-timesteps: 8
+timesteps: 15

@@ -1,6 +1,6 @@
-epochs: 101
+epochs: 100
 batch_size: 256
-lr: 0.001
+lr: 0.0005
 momentum: 0.9
 weight_decay: 0.00003
 step_size: 30

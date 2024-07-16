@@ -235,6 +235,8 @@ class SpectrumEncoder(Encoder):
 
         # plt.loglog(wave_numbers[1:], tke_spectrum[1:])
         # plt.savefig('tke_spectrum.png')
+        # normalize the spectrum between 0 and 1
+        tke_spectrum = (tke_spectrum - np.min(tke_spectrum)) / (np.max(tke_spectrum) - np.min(tke_spectrum))
         return np.log(tke_spectrum[1:] + 1e-8)
 
     def get_latent_space(self, dataset):

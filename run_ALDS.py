@@ -37,7 +37,8 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
             sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
 
             plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/timestep_{timestep}')
-            plot_partition(sub_y, pred_y, labels, kwargs['sub_size'], save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_timestep_{timestep}')
+            
+            plot_partition(sub_y, pred_y, labels, kwargs['sub_size']+2, save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_timestep_{timestep}')
 
             r2_scores.append(r2_score(sub_y.flatten().cpu().detach().numpy(), pred_y.flatten().cpu().detach().numpy()))
             # save the prediction
@@ -58,7 +59,7 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
             sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
 
             plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/idx_{idx}')
-            plot_partition(sub_y, pred_y, labels, kwargs['sub_size'], save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_idx_{idx}')
+            plot_partition(sub_y, pred_y, labels, kwargs['sub_size']+2, save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_idx_{idx}')
 
             r2_scores.append(r2_score(sub_y.flatten().cpu().detach().numpy(), pred_y.flatten().cpu().detach().numpy()))
             # save the prediction

@@ -820,15 +820,15 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         # print(num_partitions_dim_x, num_partitions_dim_y)
 
         x = torch.zeros_like(x)
-        num_partitions_dim_x = x.shape[2] - self.sub_size + 1 
-        num_partitions_dim_y = x.shape[1] - self.sub_size + 1 
+        num_partitions_dim_x = x.shape[2] - self.sub_size - 1 
+        num_partitions_dim_y = x.shape[1] - self.sub_size - 1 
         # print(x.shape)
         # print(len(x_list))
         # if the domain can be fully partitioned into subdomains of the same size
         # if len(x_list) == num_partitions_dim**2:
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
-                x[:, j:j+self.sub_size, i:i+self.sub_size, :] = x_list[i*num_partitions_dim_y + j][:, :, 0].unsqueeze(-1)
+                x[:, j:j+self.sub_size+2, i:i+self.sub_size+2, :] = x_list[i*num_partitions_dim_y + j][:, :, 0].unsqueeze(-1)
 
         # if pad_size_x == 1 and pad_size_y > 1:
         #     return x[:, pad_size_y:-pad_size_y, :, :]
@@ -838,7 +838,7 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         #     return x
         # else:
         #     x = x[:, pad_size_y:-pad_size_y, pad_size_x:-pad_size_x, :]
-        return x[:, 1:-1, 1:-1, :]
+        return x
         
     def process(self, flag_partition=False):
         if not (os.path.exists(os.path.join(self.root, 'raw', 'data_1.h5')) or os.path.exists(os.path.join(self.root, 'processed', 'data.pt'))):

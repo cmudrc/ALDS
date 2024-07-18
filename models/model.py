@@ -502,7 +502,7 @@ class InteractionNetwork(nn.Module):
         super(InteractionNetwork, self).__init__()
 
         self.node_fn = FNO2d(modes1=8, modes2=8, width=20)
-        self.boundary_fn = Transformer(enc_in=5, d_model=boundary_dim, n_heads=2, enc_layers=trans_layer)
+        self.boundary_fn = Transformer(enc_in=3, d_model=boundary_dim, n_heads=2, enc_layers=trans_layer)
 
     def forward(self, x: torch.Tensor, boundary: torch.Tensor) -> torch.Tensor:
         boundary = boundary.float()

@@ -755,80 +755,152 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         elif mode == 'test':    
             return x, pad_size_x, pad_size_y
         
+    # def get_partition_domain(self, x, mode, displacement=0):
+    #     # pad the domain symmetrically to make it divisible by sub_size
+    #     # print(x.shape)
+    #     partition_sub_size = self.sub_size + 2
+    #     # x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode)
+    #     # partition the domain into num_partitions subdomains of the same size
+    #     x_list = []
+    #     boundary_list = []
+    #     num_partitions_dim_x = x.shape[1] - partition_sub_size + 1
+    #     num_partitions_dim_y = x.shape[0] - partition_sub_size + 1
+
+    #     for i in range(num_partitions_dim_x):
+    #         for j in range(num_partitions_dim_y):
+    #             cur_x = x[j:j+partition_sub_size, i:i+partition_sub_size, :]
+    #             # create a list that holds all boundary coordinates and boundary values
+    #             boundary_bottom = torch.zeros((partition_sub_size, 3))
+    #             boundary_bottom[:, 0] =torch.linspace(0, partition_sub_size-1, partition_sub_size)
+    #             boundary_bottom[:, 2] = x[j, i:i+partition_sub_size, 0]
+    #             boundary_top = torch.zeros((partition_sub_size, 3))
+    #             boundary_top[:, 0] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
+    #             boundary_top[:, 1] = partition_sub_size-1
+    #             boundary_top[:, 2] = x[j+partition_sub_size-1, i:i+partition_sub_size, 0]
+    #             boundary_left = torch.zeros((partition_sub_size, 3))
+    #             boundary_left[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
+    #             boundary_left[:, 2] = x[j:j+partition_sub_size, i, 0]
+    #             boundary_right = torch.zeros((partition_sub_size, 3))
+    #             boundary_right[:, 0] = partition_sub_size-1
+    #             boundary_right[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
+    #             boundary_right[:, 2] = x[j:j+partition_sub_size, i+partition_sub_size-1, 0]
+    #             bc_values = torch.vstack((boundary_bottom, boundary_top, boundary_left, boundary_right))
+    #             boundary_coord_top = torch.zeros((partition_sub_size, 2))
+    #             boundary_coord_top[:, 0] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
+    #             boundary_coord_top[:, 1] = partition_sub_size-1
+    #             boundary_coord_bottom = torch.zeros((partition_sub_size, 2))
+    #             boundary_coord_bottom[:, 0] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
+    #             boundary_coord_left = torch.zeros((partition_sub_size, 2))
+    #             boundary_coord_left[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
+    #             boundary_coord_right = torch.zeros((partition_sub_size, 2))
+    #             boundary_coord_right[:, 0] = partition_sub_size-1
+    #             boundary_coord_right[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
+    #             bc_coords = torch.vstack((boundary_coord_bottom, boundary_coord_top, boundary_coord_left, boundary_coord_right))
+    #             bc_euco = torch.cat((bc_coords, bc_values), dim=-1)
+    #             boundary_list.append(bc_euco)
+    #             dist2bd_x = torch.zeros((partition_sub_size, partition_sub_size))
+    #             dist2bd_y = torch.zeros((partition_sub_size, partition_sub_size))
+    #             for k in range(partition_sub_size):
+    #                 for l in range(partition_sub_size):
+    #                     dist2bd_x[k, l] = min(k, partition_sub_size-k-1)
+    #                     dist2bd_y[k, l] = min(l, partition_sub_size-l-1)
+    #             dist2bd = torch.stack((dist2bd_x, dist2bd_y), dim=-1)
+    #             cur_x = torch.cat((cur_x, dist2bd), dim=-1)
+    #             x_list.append(cur_x)
+                 
+    #     return x_list, boundary_list
+
     def get_partition_domain(self, x, mode, displacement=0):
         # pad the domain symmetrically to make it divisible by sub_size
         # print(x.shape)
         partition_sub_size = self.sub_size + 2
-        # x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode)
+        x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode)
         # partition the domain into num_partitions subdomains of the same size
         x_list = []
         boundary_list = []
-        num_partitions_dim_x = x.shape[1] - partition_sub_size + 1
-        num_partitions_dim_y = x.shape[0] - partition_sub_size + 1
+        num_partitions_dim_x = x.shape[1] // partition_sub_size
+        num_partitions_dim_y = x.shape[0] // partition_sub_size
 
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
-                cur_x = x[j:j+partition_sub_size, i:i+partition_sub_size, :]
+                cur_x = x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, :]
                 # create a list that holds all boundary coordinates and boundary values
                 boundary_bottom = torch.zeros((partition_sub_size, 3))
                 boundary_bottom[:, 0] =torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                boundary_bottom[:, 2] = x[j, i:i+partition_sub_size, 0]
+                boundary_bottom[:, 2] = x[j*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, 0]
                 boundary_top = torch.zeros((partition_sub_size, 3))
                 boundary_top[:, 0] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
                 boundary_top[:, 1] = partition_sub_size-1
-                boundary_top[:, 2] = x[j+partition_sub_size-1, i:i+partition_sub_size, 0]
+                boundary_top[:, 2] = x[(j+1)*partition_sub_size-1, i*partition_sub_size:(i+1)*partition_sub_size, 0]
                 boundary_left = torch.zeros((partition_sub_size, 3))
                 boundary_left[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                boundary_left[:, 2] = x[j:j+partition_sub_size, i, 0]
+                boundary_left[:, 2] = x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size, 0]
                 boundary_right = torch.zeros((partition_sub_size, 3))
                 boundary_right[:, 0] = partition_sub_size-1
                 boundary_right[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                boundary_right[:, 2] = x[j:j+partition_sub_size, i+partition_sub_size-1, 0]
+                boundary_right[:, 2] = x[j*partition_sub_size:(j+1)*partition_sub_size, (i+1)*partition_sub_size-1, 0]
                 bc_values = torch.vstack((boundary_bottom, boundary_top, boundary_left, boundary_right))
-                boundary_coord_top = torch.zeros((partition_sub_size, 2))
-                boundary_coord_top[:, 0] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                boundary_coord_top[:, 1] = partition_sub_size-1
-                boundary_coord_bottom = torch.zeros((partition_sub_size, 2))
-                boundary_coord_bottom[:, 0] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                boundary_coord_left = torch.zeros((partition_sub_size, 2))
-                boundary_coord_left[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                boundary_coord_right = torch.zeros((partition_sub_size, 2))
-                boundary_coord_right[:, 0] = partition_sub_size-1
-                boundary_coord_right[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                bc_coords = torch.vstack((boundary_coord_bottom, boundary_coord_top, boundary_coord_left, boundary_coord_right))
-                bc_euco = torch.cat((bc_coords, bc_values), dim=-1)
-                boundary_list.append(bc_euco)
-                dist2bd_x = torch.zeros((partition_sub_size, partition_sub_size))
-                dist2bd_y = torch.zeros((partition_sub_size, partition_sub_size))
-                for k in range(partition_sub_size):
-                    for l in range(partition_sub_size):
-                        dist2bd_x[k, l] = min(k, partition_sub_size-k-1)
-                        dist2bd_y[k, l] = min(l, partition_sub_size-l-1)
+                boundary_list.append(bc_values)
+                dist2bd_x = torch.linspace(0, partition_sub_size-1, partition_sub_size).unsqueeze(0).repeat(partition_sub_size, 1)
+                dist2bd_y = torch.linspace(0, partition_sub_size-1, partition_sub_size).unsqueeze(1).repeat(1, partition_sub_size)
+                
                 dist2bd = torch.stack((dist2bd_x, dist2bd_y), dim=-1)
                 cur_x = torch.cat((cur_x, dist2bd), dim=-1)
                 x_list.append(cur_x)
-                 
+
         return x_list, boundary_list
+
     
+    # def reconstruct_from_partitions(self, x, x_list, displacement=0):
+    #     # reconstruct the domain from the partitioned subdomains
+    #     # print(self.sub_size)
+    #     # print(x.shape)
+    #     # x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode='test')
+
+    #     # print(self.sub_size)
+    #     # print(num_partitions_dim_x, num_partitions_dim_y)
+
+    #     x = torch.zeros_like(x)
+    #     num_partitions_dim_x = x.shape[2] - self.sub_size - 1 
+    #     num_partitions_dim_y = x.shape[1] - self.sub_size - 1 
+    #     # print(x.shape)
+    #     # print(len(x_list))
+    #     # if the domain can be fully partitioned into subdomains of the same size
+    #     # if len(x_list) == num_partitions_dim**2:
+    #     for i in range(num_partitions_dim_x):
+    #         for j in range(num_partitions_dim_y):
+    #             x[:, j:j+self.sub_size+2, i:i+self.sub_size+2, :] = x_list[i*num_partitions_dim_y + j][:, :, 0].unsqueeze(-1)
+
+    #     # if pad_size_x == 1 and pad_size_y > 1:
+    #     #     return x[:, pad_size_y:-pad_size_y, :, :]
+    #     # elif pad_size_y == 1 and pad_size_x > 1:
+    #     #     return x[:, :, pad_size_x:-pad_size_x, :]
+    #     # elif pad_size_x == 1 and pad_size_y == 1:
+    #     #     return x
+    #     # else:
+    #     #     x = x[:, pad_size_y:-pad_size_y, pad_size_x:-pad_size_x, :]
+    #     return x
+
     def reconstruct_from_partitions(self, x, x_list, displacement=0):
         # reconstruct the domain from the partitioned subdomains
         # print(self.sub_size)
         # print(x.shape)
         # x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode='test')
+        partition_sub_size = self.sub_size + 2
 
         # print(self.sub_size)
         # print(num_partitions_dim_x, num_partitions_dim_y)
 
         x = torch.zeros_like(x)
-        num_partitions_dim_x = x.shape[2] - self.sub_size - 1 
-        num_partitions_dim_y = x.shape[1] - self.sub_size - 1 
+        num_partitions_dim_x = x.shape[2] // partition_sub_size
+        num_partitions_dim_y = x.shape[1] // partition_sub_size
         # print(x.shape)
         # print(len(x_list))
         # if the domain can be fully partitioned into subdomains of the same size
         # if len(x_list) == num_partitions_dim**2:
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
-                x[:, j:j+self.sub_size+2, i:i+self.sub_size+2, :] = x_list[i*num_partitions_dim_y + j][:, :, 0].unsqueeze(-1)
+                x[:, j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, :] = x_list[i*num_partitions_dim_y + j][:, :, 0].unsqueeze(-1)
 
         # if pad_size_x == 1 and pad_size_y > 1:
         #     return x[:, pad_size_y:-pad_size_y, :, :]
@@ -837,7 +909,7 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         # elif pad_size_x == 1 and pad_size_y == 1:
         #     return x
         # else:
-        #     x = x[:, pad_size_y:-pad_size_y, pad_size_x:-pad_size_x, :]
+        # x = x[:, pad_size_y:-pad_size_y, pad_size_x:-pad_size_x, :]
         return x
         
     def process(self, flag_partition=False):

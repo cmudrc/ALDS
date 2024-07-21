@@ -207,6 +207,9 @@ class PartitionScheduler():
         model_idx = []
         for i in range(self.num_partitions):
             idx = np.where(labels == i)[0]
+            # check if the subset is empty
+            if len(idx) == 0:
+                continue
             # check if the subset exceeds the maximum size
             if len(idx) > max_subset_size:
                 num_cur_subsets = len(idx) // max_subset_size

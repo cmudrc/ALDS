@@ -74,7 +74,8 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     # revert y axis of mask
     mask = np.flip(mask, axis=0)
 
-    axs[0].contourf(xx, yy, y_pred.cpu().detach().reshape(window_size_y, window_size_x), levels=100, cmap='plasma')
+    # axs[0].contourf(xx, yy, y_pred.cpu().detach().reshape(window_size_y, window_size_x), levels=100, cmap='plasma')
+    axs[0].contourf(xx, yy, y_pred.cpu().squeeze(0).squeeze(-1), levels=np.linspace(0, 1, 100), cmap='plasma')
     axs[0].set_title('(a) Prediction')
     axs[0].axis('off')
     # axs[0].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
@@ -83,7 +84,8 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     #         rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none', alpha=0.2)
     #         axs[0].add_patch(rect)
 
-    axs[1].contourf(xx, yy, np.abs(y.cpu().reshape(window_size_y, window_size_x) - y_pred.cpu().reshape(window_size_y, window_size_x)) / y.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
+    # axs[1].contourf(xx, yy, np.abs(y.cpu().reshape(window_size_y, window_size_x) - y_pred.cpu().reshape(window_size_y, window_size_x)) / y.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
+    axs[1].contourf(xx, yy, np.abs(y.squeeze(0).squeeze(-1).cpu() - y_pred.cpu().squeeze(0).squeeze(-1)) / y.cpu().squeeze(0).squeeze(-1), levels=np.linspace(0, 1, 100), cmap='plasma')
     axs[1].set_title('(b) Absolute difference by percentage')
     axs[1].axis('off')
     # axs[1].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')

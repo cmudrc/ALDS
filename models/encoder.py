@@ -209,7 +209,13 @@ class SpectrumEncoder(Encoder):
 
         nt = nx * ny
         # Compute velocity spectrum
-        uf = np.fft.fft2(u, axes=(0, 1))
+        if len(u.shape) == 2:
+            uf = np.fft.fft2(u, axes=(0, 1))
+        elif len(u.shape) == 3:
+            uf = np.fft.fft2(u[:, :, 0].unsqueeze(-1), axes=(0, 1))
+        else:
+            print(u.shape)
+            raise ValueError('Invalid input shape')
 
         # Compute the point-wise turbulent kinetic energy
         Ef = 0.5 * (uf * np.conj(uf)).real

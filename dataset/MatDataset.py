@@ -814,7 +814,7 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         # pad the domain symmetrically to make it divisible by sub_size
         # print(x.shape)
         partition_sub_size = self.sub_size + 2
-        x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode)
+        # x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode)
         # partition the domain into num_partitions subdomains of the same size
         x_list = []
         boundary_list = []
@@ -891,9 +891,15 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         # print(self.sub_size)
         # print(num_partitions_dim_x, num_partitions_dim_y)
 
-        x = torch.zeros_like(x)
         num_partitions_dim_x = x.shape[2] // partition_sub_size
         num_partitions_dim_y = x.shape[1] // partition_sub_size
+
+        if len(x.shape) == 3:    
+            x = torch.zeros(num_partitions_dim_y*partition_sub_size, num_partitions_dim_x*partition_sub_size, x.shape[-1])
+        elif len(x.shape) == 4:
+            x = torch.zeros(x.shape[0], num_partitions_dim_y*partition_sub_size, num_partitions_dim_x*partition_sub_size, x.shape[-1])
+        else:
+            raise ValueError('Invalid tensor shape')
         # print(x.shape)
         # print(len(x_list))
         # if the domain can be fully partitioned into subdomains of the same size

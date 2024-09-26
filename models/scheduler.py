@@ -8,6 +8,7 @@ from torch.nn.init import uniform_ as reset
 # import torch_geometric.nn as pyg_nn
 # from torch_geometric.nn.inits import reset, uniform
 import torch.nn.functional as F
+from sklearn.metrics import r2_score
 from joblib import dump, load
 import wandb
 from dataset.MatDataset import Sub_JHTDB
@@ -137,7 +138,7 @@ class PartitionScheduler():
                             val_loss += criterion(pred, y).item()
                         val_loss /= len(val_loader)
                         wandb.log({'val_loss': val_loss})
-                        print(f'Epoach: {epoch + 1}/{epochs}, Validation Loss: {val_loss}')
+                        print(f'Epoch: {epoch + 1}/{epochs}, Validation Loss: {val_loss}')
 
                         # plot one sample from the validation set
                         x, y = val_dataset[0]
@@ -293,24 +294,49 @@ class PartitionScheduler():
         all_labels = []
         predictions = x_list
         pred_boundary_list = x_boundary_list
-        for i in range(num_iters):
-            # print(i)
-            if x_boundary_list is not None:
-                pred, _ = self.predict(predictions, pred_boundary_list)
-            else:
-                pred, _ = self.predict(predictions)
-            predictions = pred.cpu().clone()
-            prediction_reconstructed = self.dataset.reconstruct_from_partitions(x.unsqueeze(0), predictions)
-            # print(prediction_reconstructed.shape)
-            all_predictions.append(predictions)
-            all_labels.append(_)
-            try:
-                predictions = self.dataset.get_partition_domain(prediction_reconstructed.squeeze(0), mode='test')
-                predictions = torch.stack(predictions)
-            except:
-                predictions, pred_boundary_list = self.dataset.get_partition_domain(prediction_reconstructed.squeeze(0), mode='test')
-                predictions = torch.stack(predictions)
-                pred_boundary_list = torch.stack(pred_boundary_list)
+        if num_iters == 0:
+            # run infinite iterations until prediction accuracy drops below a certain threshold
+            while True:
+                if x_boundary_list is not None:
+                    pred, _ = self.predict(predictions, pred_boundary_list)
+                else:
+                    pred, _ = self.predict(predictions)
+                predictions = pred.cpu().clone()
+                prediction_reconstructed = self.dataset.reconstruct_from_partitions(x.unsqueeze(0), predictions)
+                # print(prediction_reconstructed.shape)
+                all_predictions.append(predictions)
+                all_labels.append(_)
+                try:
+                    predictions = self.dataset.get_partition_domain(prediction_reconstructed.squeeze(0), mode='test')
+                    predictions = torch.stack(predictions)
+                except:
+                    predictions, pred_boundary_list = self.dataset.get_partition_domain(prediction_reconstructed.squeeze(0), mode='test')
+                    predictions = torch.stack(predictions)
+                    pred_boundary_list = torch.stack(pred_boundary_list)
+
+                # check if the prediction accuracy drops below a certain threshold
+                r2_accuracy = r2_score(predictions, x_list)
+                if r2_accuracy < 0.9:
+                    break
+        else:
+            for i in range(num_iters):
+                # print(i)
+                if x_boundary_list is not None:
+                    pred, _ = self.predict(predictions, pred_boundary_list)
+                else:
+                    pred, _ = self.predict(predictions)
+                predictions = pred.cpu().clone()
+                prediction_reconstructed = self.dataset.reconstruct_from_partitions(x.unsqueeze(0), predictions)
+                # print(prediction_reconstructed.shape)
+                all_predictions.append(predictions)
+                all_labels.append(_)
+                try:
+                    predictions = self.dataset.get_partition_domain(prediction_reconstructed.squeeze(0), mode='test')
+                    predictions = torch.stack(predictions)
+                except:
+                    predictions, pred_boundary_list = self.dataset.get_partition_domain(prediction_reconstructed.squeeze(0), mode='test')
+                    predictions = torch.stack(predictions)
+                    pred_boundary_list = torch.stack(pred_boundary_list)
 
         return all_predictions, all_labels
     

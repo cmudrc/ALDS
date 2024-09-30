@@ -150,15 +150,21 @@ class GenericGraphDataset(InMemoryDataset):
 class CoronaryArteryDataset(GenericGraphDataset):
     def __init__(self, root, transform=None, pre_transform=None, partition=False, **kwargs):
         super(CoronaryArteryDataset, self).__init__(root, transform, pre_transform, partition, **kwargs)
-        self.raw_file_names = [os.path.join(self.raw_dir, f) for f in os.listdir(self.raw_dir) if f.endswith('.vtu')]
+        # self.raw_file_names = [os.path.join(self.raw_dir, f) for f in os.listdir(self.raw_dir) if f.endswith('.vtu')]
 
     def download(self):
         pass
 
+    @property
+    def raw_file_names(self):
+        return [os.path.join(self.raw_dir, f) for f in os.listdir(self.raw_dir) if f.endswith('.vtu')]
+
     def process(self):
         num_processes = mp.cpu_count()
-        raw_data_list = [self.raw_file_names[i:i + num_processes] for i in range(0, len(self.raw_file_names), num_processes)]
+        len_single_process = len(self.raw_file_names) // (num_processes - 1)
+        raw_data_list = [self.raw_file_names[i:i + len_single_process] for i in range(0, len(self.raw_file_names), len_single_process)]
         with mp.Pool(num_processes) as pool:
+            # data_list_test = CoronaryArteryDataset._process_file(raw_data_list[0])
             data_list = pool.map(CoronaryArteryDataset._process_file, raw_data_list)
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
@@ -171,16 +177,16 @@ class CoronaryArteryDataset(GenericGraphDataset):
             # export mesh physics
             velocity = raw_solution.point_data['velocity']
             pressure = raw_solution.point_data['pressure']
-            physics_node_id = raw_solution.point_data['GlobalNodeID']
+            # physics_node_id = raw_solution.point_data['GlobalNodeID']
 
             # rearrange the physics data according to the node id
-            velocity = np.array([velocity[physics_node_id == i] for i in range(velocity.size(0))])
-            pressure = np.array([pressure[physics_node_id == i] for i in range(pressure.size(0))])
+            # velocity = np.array([velocity[physics_node_id == i+1] for i in range(velocity.size)])
+            # pressure = np.array([pressure[physics_node_id == i+1] for i in range(pressure.size)])
 
             # export mesh geometry
             pos = torch.tensor(raw_solution.points, dtype=torch.float)
-            cells = torch.tensor(raw_solution.cells_dict)
-            edge_index = CoronaryArteryDataset._cell_to_connectivity(cells['triangle'])
+            cells = raw_solution.cells_dict['tetra']
+            edge_index = CoronaryArteryDataset._cell_to_connectivity(cells)
 
             # identify mesh wall nodes
             wall_node = CoronaryArteryDataset._get_boundary_nodes(raw_solution)
@@ -188,7 +194,7 @@ class CoronaryArteryDataset(GenericGraphDataset):
             wall_idx[wall_node] = 1
 
             # create a torch_geometric.data.Data object
-            data = Data(x=torch.cat([torch.tensor(velocity), torch.tensor(pressure), wall_idx], dim=1), pos=pos, edge_index=edge_index)
+            data = Data(x=torch.cat([torch.tensor(velocity), torch.tensor(pressure).unsqueeze(1), wall_idx.unsqueeze(1)], dim=1), pos=pos, edge_index=edge_index)
             data_list.append(data)
         return data_list
 
@@ -197,12 +203,11 @@ class CoronaryArteryDataset(GenericGraphDataset):
     def _cell_to_connectivity(cells):
         all_edges = []
         for cell in cells:
-            edges = []
-            for i in range(cell.size(0)):
-                edges.append([cell[i], cell[(i + 1) % cell.size(0)]])
+            for i in range(cell.size):
+                all_edges.append([cell[i], cell[(i + 1) % cell.size]])
                 # add the reverse edge
-                edges.append([cell[(i + 1) % cell.size(0)], cell[i]])
-            all_edges.append(edges)
+                all_edges.append([cell[(i + 1) % cell.size], cell[i]])
+            # all_edges.append(edges)
 
         return torch.tensor(all_edges).t().contiguous().view(2, -1)
     

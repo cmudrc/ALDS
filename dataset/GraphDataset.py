@@ -8,6 +8,8 @@ import scipy.io
 import ctypes
 import h5py
 import shutil
+import multiprocessing as mp
+from threading import Thread
 import scipy.sparse as sp
 import torch_geometric as pyg
 from torch_geometric.data import Data, InMemoryDataset
@@ -18,12 +20,13 @@ from torch_geometric.utils import subgraph
 class GenericGraphDataset(InMemoryDataset):
     def __init__(self, root, transform=None, pre_transform=None, partition=False, **kwargs):
         super(GenericGraphDataset, self).__init__(root, transform, pre_transform)
-        self.raw_dir = os.path.join(root, 'raw')
-        self.processed_dir = os.path.join(root, 'processed')
+        # self.raw_dir = os.path.join(root, 'raw')
+        # self.processed_dir = os.path.join(root, 'processed')
         # check if the raw data & processed data directories are empty
         if len(os.listdir(self.raw_dir)) == 0:
             raise RuntimeError('Raw data directory is empty. Please download the dataset first.')
-        if len(os.listdir(self.processed_dir)) == 0:
+        if not os.path.exists(self.processed_dir) or len(os.listdir(self.processed_dir)) == 0:
+            print('Processing data...')
             self.process()
 
         self.data, self.slices = torch.load(self.processed_paths[0])
@@ -41,13 +44,13 @@ class GenericGraphDataset(InMemoryDataset):
     def download(self):
         pass
 
-    def process(self):
-        data_list = []
-        for i in range(1, 3):
-            data = torch.load('data/processed/data_{}.pt'.format(i))
-            data_list.append(data)
-        data, slices = self.collate(data_list)
-        torch.save((data, slices), self.processed_paths[0])
+    # def process(self):
+    #     data_list = []
+    #     for i in range(1, 3):
+    #         data = torch.load('data/processed/data_{}.pt'.format(i))
+    #         data_list.append(data)
+    #     data, slices = self.collate(data_list)
+    #     torch.save((data, slices), self.processed_paths[0])
 
     def __repr__(self):
         return '{}()'.format(self.__class__.__name__)
@@ -110,21 +113,21 @@ class GenericGraphDataset(InMemoryDataset):
 
         return subdomains
     
-    @staticmethod
-    def get_graph_boundary_edges(data, dimension=3):
-        """
-        returns the boundary edges of a graph
+    # @staticmethod
+    # def get_graph_boundary_edges(data, dimension=3):
+    #     """
+    #     returns the boundary edges of a graph
         
-        :param data: the graph stored in a torch_geometric.data.Data
-        :param dimension: the defined geometrical dimension of the graph
-        """
-        # get adjacency matrix
-        adj = pyg.utils.to_dense_adj(data.edge_index).squeeze()
-        # get boundary edges as edgws with only one cell assignments
-        boundary_edges = []
-        boundary_edges = torch.where(adj.sum(dim=0) == 1)[0]
+    #     :param data: the graph stored in a torch_geometric.data.Data
+    #     :param dimension: the defined geometrical dimension of the graph
+    #     """
+    #     # get adjacency matrix
+    #     adj = pyg.utils.to_dense_adj(data.edge_index).squeeze()
+    #     # get boundary edges as edgws with only one cell assignments
+    #     boundary_edges = []
+    #     boundary_edges = torch.where(adj.sum(dim=0) == 1)[0]
 
-        return boundary_edges
+    #     return boundary_edges
 
         
 
@@ -147,21 +150,76 @@ class GenericGraphDataset(InMemoryDataset):
 class CoronaryArteryDataset(GenericGraphDataset):
     def __init__(self, root, transform=None, pre_transform=None, partition=False, **kwargs):
         super(CoronaryArteryDataset, self).__init__(root, transform, pre_transform, partition, **kwargs)
-        self.raw_file_names = ["all_results_0{}0.vtu".format(i) for i in range(258, 345)]
+        self.raw_file_names = [os.path.join(self.raw_dir, f) for f in os.listdir(self.raw_dir) if f.endswith('.vtu')]
 
     def download(self):
         pass
 
     def process(self):
-        data = torch.load('data/processed/data_1.pt')
-        data_list = self.get_partition_domain(data, 'train')
+        num_processes = mp.cpu_count()
+        raw_data_list = [self.raw_file_names[i:i + num_processes] for i in range(0, len(self.raw_file_names), num_processes)]
+        with mp.Pool(num_processes) as pool:
+            data_list = pool.map(CoronaryArteryDataset._process_file, raw_data_list)
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
 
     @staticmethod
-    def _process_file(path):
-        raw_solution = meshio.read(path)
+    def _process_file(path_list):
+        data_list = []
+        for path in path_list:
+            raw_solution = meshio.read(path)
+            # export mesh physics
+            velocity = raw_solution.point_data['velocity']
+            pressure = raw_solution.point_data['pressure']
+            physics_node_id = raw_solution.point_data['GlobalNodeID']
+
+            # rearrange the physics data according to the node id
+            velocity = np.array([velocity[physics_node_id == i] for i in range(velocity.size(0))])
+            pressure = np.array([pressure[physics_node_id == i] for i in range(pressure.size(0))])
+
+            # export mesh geometry
+            pos = torch.tensor(raw_solution.points, dtype=torch.float)
+            cells = torch.tensor(raw_solution.cells_dict)
+            edge_index = CoronaryArteryDataset._cell_to_connectivity(cells['triangle'])
+
+            # identify mesh wall nodes
+            wall_node = CoronaryArteryDataset._get_boundary_nodes(raw_solution)
+            wall_idx = torch.zeros(pos.size(0), dtype=torch.float)
+            wall_idx[wall_node] = 1
+
+            # create a torch_geometric.data.Data object
+            data = Data(x=torch.cat([torch.tensor(velocity), torch.tensor(pressure), wall_idx], dim=1), pos=pos, edge_index=edge_index)
+            data_list.append(data)
+        return data_list
+
+
+    @staticmethod
+    def _cell_to_connectivity(cells):
+        all_edges = []
+        for cell in cells:
+            edges = []
+            for i in range(cell.size(0)):
+                edges.append([cell[i], cell[(i + 1) % cell.size(0)]])
+                # add the reverse edge
+                edges.append([cell[(i + 1) % cell.size(0)], cell[i]])
+            all_edges.append(edges)
+
+        return torch.tensor(all_edges).t().contiguous().view(2, -1)
+    
+    @staticmethod
+    def _get_boundary_nodes(data):
+        """
+        returns the boundary nodes of a graph
         
+        :param edge_index: the edge index of the graph
+        :param num_nodes: the total number of nodes in the graph
+        """
+        # get boundary nodes as nodes with WSS but no velocity
+        velocity = data.point_data['velocity']
+        wss = data.point_data['vWSS']
+        boundary_nodes = np.where((np.sum(velocity, axis=1) == 0) & (np.sum(wss, axis=1) != 0))[0]
+        return boundary_nodes
+
 
     def _download(self):
         pass

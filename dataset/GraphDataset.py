@@ -29,9 +29,10 @@ class GenericGraphDataset(InMemoryDataset):
             print('Processing data...')
             self.process()
 
-        self.data, self.slices = torch.load(self.processed_paths[0])
+        self.data = torch.load(self.processed_paths[0])
         if partition:
             self.sub_size = kwargs['sub_size']
+            self.data = self.get_partition_domain(self.data, 'train')
 
     @property
     def raw_file_names(self):
@@ -67,49 +68,70 @@ class GenericGraphDataset(InMemoryDataset):
         
         :param data: the original domain stored in a torch_geometric.data.Data object. geometry is stored in data.pos
         """
-        # get domain geometry bounds
-        x_min, x_max = data.pos[:, 0].min(), data.pos[:, 0].max()
-        y_min, y_max = data.pos[:, 1].min(), data.pos[:, 1].max()
-        z_min, z_max = data.pos[:, 2].min(), data.pos[:, 2].max()
+        if mode == 'train':
+            num_processes = mp.cpu_count()
+            len_single_process = max(len(data) // (num_processes - 1), 1)
+            data_list = [(data[i * len_single_process:(i + 1) * len_single_process], self.sub_size) for i in range(0, len(data), len_single_process)]
+            with mp.Pool(num_processes) as pool:
+                self.data_test = self._get_partiton_domain(data_list[0])
+                subdomains = pool.map(self._get_partiton_domain, data_list)
 
-        # divide the domain into subdomains according to self.sub_size
+        return subdomains
+    
+    @staticmethod
+    def _get_partiton_domain(data):
+        """
+        returns a full partitioned collection of subdomains of the original domain
+        
+        :param data: the original domain stored in a torch_geometric.data.Data
+        :param sub_size: the size of the subdomains
+        """
+        data_batch, sub_size = data
         subdomains = []
-        for x in np.arange(x_min, x_max, self.sub_size):
-            for y in np.arange(y_min, y_max, self.sub_size):
-                for z in np.arange(z_min, z_max, self.sub_size):
-                    # find nodes within the subdomain
-                    mask = (data.pos[:, 0] >= x) & (data.pos[:, 0] < x + self.sub_size) & \
-                           (data.pos[:, 1] >= y) & (data.pos[:, 1] < y + self.sub_size) & \
-                           (data.pos[:, 2] >= z) & (data.pos[:, 2] < z + self.sub_size)
-                    subdomain = subgraph(mask, data)
+        for data in data_batch:
+            print(data)
+        # get domain geometry bounds
+            x_min, x_max = data.pos[:, 0].min(), data.pos[:, 0].max()
+            y_min, y_max = data.pos[:, 1].min(), data.pos[:, 1].max()
+            z_min, z_max = data.pos[:, 2].min(), data.pos[:, 2].max()
 
-                    # add boundary information to the subdomain. boundary information is applied as vector on the boundary nodes
-                    # indentify boundary nodes
-                    boundary_mask = self.get_graph_boundary_edges(subdomain)
-                    boundary_nodes = subdomain.edge_index[0][boundary_mask].unique()
-                    boundary_nodes = torch.cat([boundary_nodes, subdomain.edge_index[1][boundary_mask].unique()])
-                    boundary_nodes = boundary_nodes.unique()
-                    boundary_nodes = boundary_nodes[boundary_nodes != -1]
+            # divide the domain into subdomains according to self.sub_size
+            for x in np.arange(x_min, x_max, sub_size):
+                for y in np.arange(y_min, y_max, sub_size):
+                    for z in np.arange(z_min, z_max, sub_size):
+                        # find nodes within the subdomain
+                        mask = (data.pos[:, 0] >= x) & (data.pos[:, 0] < x + sub_size) & \
+                            (data.pos[:, 1] >= y) & (data.pos[:, 1] < y + sub_size) & \
+                            (data.pos[:, 2] >= z) & (data.pos[:, 2] < z + sub_size)
+                        subdomain = subgraph(mask, data)
 
-                    # add boundary information to the subdomain
-                    boundary_info = torch.zeros((boundary_nodes.size(0), 3))
-                    # compute boundary vector
-                    # get all edges connected to the boundary nodes
-                    boundary_edges = subdomain.edge_index[:, boundary_mask]
-                    # for every node on the boundary, compute Neumann boundary condition by averaging the 'x' property of the connected nodes
-                    for i, node in enumerate(boundary_nodes):
-                        connected_nodes = boundary_edges[1][boundary_edges[0] == node]
+                        # add boundary information to the subdomain. boundary information is applied as vector on the boundary nodes
+                        # indentify boundary nodes
+                        boundary_mask = GenericGraphDataset.get_graph_boundary_edges(subdomain)
+                        boundary_nodes = subdomain.edge_index[0][boundary_mask].unique()
+                        boundary_nodes = torch.cat([boundary_nodes, subdomain.edge_index[1][boundary_mask].unique()])
+                        boundary_nodes = boundary_nodes.unique()
+                        boundary_nodes = boundary_nodes[boundary_nodes != -1]
 
-                        # compute magnitude & direction of the boundary vector
-                        boundary_vector = data.pos[node] - data.pos[connected_nodes]
-                        boundary_magnitude = data.x[node] - data.x[connected_nodes]
-                        # compute Neumann boundary condition
-                        boundary_info[i] = boundary_magnitude / boundary_vector.norm()
+                        # add boundary information to the subdomain
+                        boundary_info = torch.zeros((boundary_nodes.size(0), 3))
+                        # compute boundary vector
+                        # get all edges connected to the boundary nodes
+                        boundary_edges = subdomain.edge_index[:, boundary_mask]
+                        # for every node on the boundary, compute Neumann boundary condition by averaging the 'x' property of the connected nodes
+                        for i, node in enumerate(boundary_nodes):
+                            connected_nodes = boundary_edges[1][boundary_edges[0] == node]
 
-                    # add boundary information to the subdomain
-                    subdomain.bc = boundary_info
+                            # compute magnitude & direction of the boundary vector
+                            boundary_vector = data.pos[node] - data.pos[connected_nodes]
+                            boundary_magnitude = data.x[node] - data.x[connected_nodes]
+                            # compute Neumann boundary condition
+                            boundary_info[i] = boundary_magnitude / boundary_vector.norm()
 
-                    subdomains.append(subdomain)
+                        # add boundary information to the subdomain
+                        subdomain.bc = boundary_info
+
+                        subdomains.append(subdomain)
 
         return subdomains
     
@@ -160,14 +182,15 @@ class CoronaryArteryDataset(GenericGraphDataset):
         return [os.path.join(self.raw_dir, f) for f in os.listdir(self.raw_dir) if f.endswith('.vtu')]
 
     def process(self):
+        os.makedirs(self.processed_dir, exist_ok=True)
         num_processes = mp.cpu_count()
-        len_single_process = len(self.raw_file_names) // (num_processes - 1)
+        len_single_process = max(len(self.raw_file_names) // (num_processes - 1), 1)
         raw_data_list = [self.raw_file_names[i:i + len_single_process] for i in range(0, len(self.raw_file_names), len_single_process)]
         with mp.Pool(num_processes) as pool:
             # data_list_test = CoronaryArteryDataset._process_file(raw_data_list[0])
             data_list = pool.map(CoronaryArteryDataset._process_file, raw_data_list)
-        data, slices = self.collate(data_list)
-        torch.save((data, slices), self.processed_paths[0])
+        # data, slices = self.collate(data_list)
+        torch.save(data_list, self.processed_paths[0])
 
     @staticmethod
     def _process_file(path_list):

@@ -68,14 +68,18 @@ class GenericGraphDataset(InMemoryDataset):
         
         :param data: the original domain stored in a torch_geometric.data.Data object. geometry is stored in data.pos
         """
-        if mode == 'train':
-            num_processes = mp.cpu_count()
-            len_single_process = max(len(data) // (num_processes - 1), 1)
-            data_list = [(data[i * len_single_process:(i + 1) * len_single_process], self.sub_size) for i in range(0, len(data), len_single_process)]
-            with mp.Pool(num_processes) as pool:
-                self.data_test = self._get_partiton_domain(data_list[0])
-                subdomains = pool.map(self._get_partiton_domain, data_list)
-
+        os.makedirs(os.path.join(self.root, 'partition'), exist_ok=True)
+        if os.path.exists(os.path.join(self.root, 'partition', 'data.pt')):
+            subdomains = torch.load(os.path.join(self.root, 'partition', 'data.pt'))
+        else:
+            if mode == 'train':
+                num_processes = mp.cpu_count()
+                len_single_process = max(len(data) // (num_processes - 1), 1)
+                data_list = [(data[i * len_single_process:(i + 1) * len_single_process], self.sub_size) for i in range(0, len(data), len_single_process)]
+                with mp.Pool(num_processes) as pool:
+                    self.data_test = self._get_partiton_domain(data_list[0])
+                    subdomains = pool.map(self._get_partiton_domain, data_list)
+                torch.save(subdomains, os.path.join(self.root, 'partition', 'data.pt'))
         return subdomains
     
     @staticmethod
@@ -89,11 +93,13 @@ class GenericGraphDataset(InMemoryDataset):
         data_batch, sub_size = data
         subdomains = []
         for data in data_batch:
-            print(data)
+            data = data[0]
         # get domain geometry bounds
             x_min, x_max = data.pos[:, 0].min(), data.pos[:, 0].max()
             y_min, y_max = data.pos[:, 1].min(), data.pos[:, 1].max()
             z_min, z_max = data.pos[:, 2].min(), data.pos[:, 2].max()
+            # temporary fix to the device issue
+            data.edge_index = torch.Tensor(data.edge_index)
 
             # divide the domain into subdomains according to self.sub_size
             for x in np.arange(x_min, x_max, sub_size):
@@ -217,7 +223,7 @@ class CoronaryArteryDataset(GenericGraphDataset):
             wall_idx[wall_node] = 1
 
             # create a torch_geometric.data.Data object
-            data = Data(x=torch.cat([torch.tensor(velocity), torch.tensor(pressure).unsqueeze(1), wall_idx.unsqueeze(1)], dim=1), pos=pos, edge_index=edge_index)
+            data = Data(x=torch.cat([torch.tensor(velocity), torch.tensor(pressure).unsqueeze(1), wall_idx.unsqueeze(1)], dim=1), pos=pos, edge_index=torch.Tensor(edge_index))
             data_list.append(data)
         return data_list
 

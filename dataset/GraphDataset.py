@@ -77,7 +77,7 @@ class GenericGraphDataset(InMemoryDataset):
                 len_single_process = max(len(data) // (num_processes - 1), 1)
                 data_list = [(data[i * len_single_process:(i + 1) * len_single_process], self.sub_size) for i in range(0, len(data), len_single_process)]
                 with mp.Pool(num_processes) as pool:
-                    self.data_test = self._get_partiton_domain(data_list[0])
+                    # self.data_test = self._get_partiton_domain(data_list[0])
                     subdomains = pool.map(self._get_partiton_domain, data_list)
                 torch.save(subdomains, os.path.join(self.root, 'partition', 'data.pt'))
         return subdomains
@@ -99,7 +99,7 @@ class GenericGraphDataset(InMemoryDataset):
             y_min, y_max = data.pos[:, 1].min(), data.pos[:, 1].max()
             z_min, z_max = data.pos[:, 2].min(), data.pos[:, 2].max()
             # temporary fix to the device issue
-            data.edge_index = torch.Tensor(data.edge_index)
+            # data.edge_index = torch.Tensor(data.edge_index)
 
             # divide the domain into subdomains according to self.sub_size
             for x in np.arange(x_min, x_max, sub_size):
@@ -109,8 +109,10 @@ class GenericGraphDataset(InMemoryDataset):
                         mask = (data.pos[:, 0] >= x) & (data.pos[:, 0] < x + sub_size) & \
                             (data.pos[:, 1] >= y) & (data.pos[:, 1] < y + sub_size) & \
                             (data.pos[:, 2] >= z) & (data.pos[:, 2] < z + sub_size)
-                        subdomain = subgraph(mask, data)
+                        subdomain, _ = subgraph(mask, data.edge_index)
 
+                        ########################## TBD: fix boundary information ##########################
+                        '''
                         # add boundary information to the subdomain. boundary information is applied as vector on the boundary nodes
                         # indentify boundary nodes
                         boundary_mask = GenericGraphDataset.get_graph_boundary_edges(subdomain)
@@ -136,10 +138,28 @@ class GenericGraphDataset(InMemoryDataset):
 
                         # add boundary information to the subdomain
                         subdomain.bc = boundary_info
+                        '''
+                        ####################################################################################
 
+                        subdomain = Data(x=data.x[mask], pos=data.pos[mask], edge_index=subdomain)
                         subdomains.append(subdomain)
 
         return subdomains
+    
+    def get_graph_boundary_edges(data, dimension=3):
+        """
+        returns the boundary edges of a graph
+        
+        :param data: the graph stored in a torch_geometric.data.Data
+        :param dimension: the defined geometrical dimension of the graph
+        """
+        # get adjacency matrix
+        adj = pyg.utils.to_dense_adj(data).squeeze()
+        # get boundary edges as edgws with only one cell assignments
+        boundary_edges = []
+        boundary_edges = torch.where(adj.sum(dim=0) == 1)[0]
+
+        return boundary_edges
     
     # @staticmethod
     # def get_graph_boundary_edges(data, dimension=3):

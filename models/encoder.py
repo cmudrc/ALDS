@@ -263,3 +263,24 @@ class SpectrumEncoder(Encoder):
 
     def load_model(self, path):
         pass
+
+
+class DMDEncoder(Encoder):
+    """
+    Employs the Dynamic Mode Decomposition to extract the latent space of the flow fields.
+    """
+    def __init__(self, n_components, **kwargs):
+        super(DMDEncoder, self).__init__(n_components)
+        self.n_components = n_components
+
+    def train(self, dataset, save_model=False, path=None):
+        pass
+    
+    def get_latent_space(self, dataset):
+        pass
+
+    def get_latent(self, x):
+        pass
+
+    def load_model(self, path):
+        pass

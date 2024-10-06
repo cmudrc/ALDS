@@ -27,5 +27,5 @@ partition: True
 sub_size: 12
 
 # pred configs
-idxs: [30]
-timesteps: 0
+idxs: [1]
+timesteps: 20

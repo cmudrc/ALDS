@@ -1,4 +1,5 @@
 import torch
+from sklearn.model_selection import train_test_split
 import numpy as np
 import wandb
 from sklearn.metrics import r2_score
@@ -102,20 +103,21 @@ if __name__ == '__main__':
     model = init_model(model_name, **exp_config)
     dataset = init_dataset(dataset_name, **exp_config)
 
-    train_dataset, test_dataset = dataset[:int(len(dataset)*0.8)], dataset[int(len(dataset)*0.8):]
+    # train_dataset, test_dataset = train_test_split(dataset, test_size=0.2, random_state=42)
 
     if exp_config['save_mode'] == 'wandb':
         wandb.init(project='ALDS', name=exp_name)
 
     if run_mode == 'train':
-        train_ALDS(exp_name, encoder, classifier, model, train_dataset, n_clusters, train_config)
+        train_ALDS(exp_name, encoder, classifier, model, dataset, n_clusters, train_config)
         print('Training done!')
     elif run_mode == 'pred':
         idxs = exp_config['idxs']
         save_mode = exp_config['save_mode']
         # check if timesteps are provided
+        # print(exp_config['timesteps'])
         if 'timesteps' in exp_config:
-            pred_ALDS(idxs, exp_name, encoder, classifier, model, test_dataset, n_clusters, save_mode=save_mode, sub_size=exp_config['sub_size'], timesteps=exp_config['timesteps'])
+            pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, n_clusters, save_mode=save_mode, sub_size=exp_config['sub_size'], timesteps=exp_config['timesteps'])
         else:
-            pred_ALDS(idxs, exp_name, encoder, classifier, model, test_dataset, n_clusters, save_mode=save_mode, sub_size=exp_config['sub_size'])
+            pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, n_clusters, save_mode=save_mode, sub_size=exp_config['sub_size'])
         print('Prediction done!')

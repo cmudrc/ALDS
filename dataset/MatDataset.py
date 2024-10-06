@@ -701,7 +701,6 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         self.jhtdb.finalize()
         self.valid_tsteps = valid_tsteps
 
-
     def _process(self, flag_partition=False):
         os.makedirs(os.path.join(self.root, 'processed'), exist_ok=True)
         u_list = []

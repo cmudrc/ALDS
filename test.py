@@ -1,3 +1,4 @@
 from dataset.GraphDataset import CoronaryArteryDataset
 
-dataset = CoronaryArteryDataset(root='data/coronary')
+if __name__ == '__main__':
+    dataset = CoronaryArteryDataset(root='data/coronary', partition=True, sub_size=5)

@@ -24,9 +24,14 @@ def train_DS(exp_name, model, dataset, train_config, **kwargs):
         model.train()
         loss_epoch = 0
         for batch_idx, (x, y) in enumerate(train_loader):
-            x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
-            y_pred = model(x)
+            try:
+                x, y = x.to(device), y.to(device)
+                y_pred = model(x)
+            except:
+                x, boundary, y = x[0].to(device), x[1].to(device), y[:, :, :, 0].to(device)
+                y_pred = model(x, boundary).squeeze()
+            # print(y_pred.shape, y.shape)
             loss = criterion(y_pred, y)
             loss.backward()
             optimizer.step()
@@ -43,15 +48,19 @@ def train_DS(exp_name, model, dataset, train_config, **kwargs):
             val_loss = 0
             with torch.no_grad():
                 for x, y in val_loader:
-                    x, y = x.to(device), y.to(device)
-                    y_pred = model(x)
+                    try:
+                        x, y = x.to(device), y.to(device)
+                        y_pred = model(x)
+                    except:
+                        x, boundary, y = x[0].to(device), x[1].to(device), y[:, :, :, 0].to(device)
+                        y_pred = model(x, boundary).squeeze()
                     val_loss += criterion(y_pred, y).item()
 
             val_loss /= len(val_loader)
             wandb.log({'val_loss': val_loss})
             print(f'Epoch {epoch}, Validation Loss: {val_loss}')
 
-            plot_prediction(y[0].cpu(), y_pred[0].cpu(), save_mode='wandb')
+            # plot_prediction(y[0].cpu(), y_pred[0].cpu(), save_mode='wandb')
 
     os.makedirs(f'logs/models/collection_{exp_name}', exist_ok=True)
     torch.save(model.state_dict(), f'logs/models/collection_{exp_name}/model.pth')

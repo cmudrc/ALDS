@@ -18,37 +18,40 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
     
     r2_scores = []
     if 'timesteps' in kwargs:
-        try:
-            x, sub_x_list, _ = dataset.get_one_full_sample(idxs[0])
-            all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_tensor, num_iters=kwargs['timesteps'])
-        except:
-            x, sub_x_list, sub_boundary_list, _ = dataset.get_one_full_sample(idxs[0])
-            sub_x_tensor = torch.stack(sub_x_list)
-            sub_boundary_tensor = torch.stack(sub_boundary_list)    
-
-            all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_tensor, sub_boundary_tensor, num_iters=kwargs['timesteps'])
-        
-        timestep = idxs[0]
-        for pred_y_list, labels in zip(all_pred_y_list, all_labels):
+        all_r2_scores = []
+        for idx in idxs:
             try:
-                _, sub_y_list, _ = dataset.get_one_full_sample(timestep+1)
+                x, sub_x_list, _ = dataset.get_one_full_sample(idx)
+                all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_tensor, num_iters=kwargs['timesteps'])
             except:
-                _, sub_y_list, _, _ = dataset.get_one_full_sample(timestep+1)
-            pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
-            sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
+                x, sub_x_list, sub_boundary_list, _ = dataset.get_one_full_sample(idx)
+                sub_x_tensor = torch.stack(sub_x_list)
+                sub_boundary_tensor = torch.stack(sub_boundary_list)    
 
-            plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/timestep_{timestep}')
+                all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_tensor, sub_boundary_tensor, num_iters=kwargs['timesteps'])
             
-            plot_partition(sub_y, pred_y, labels, kwargs['sub_size']+2, save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_timestep_{timestep}')
+            timestep = idx
+            for pred_y_list, labels in zip(all_pred_y_list, all_labels):
+                try:
+                    _, sub_y_list, _ = dataset.get_one_full_sample(timestep+1)
+                except:
+                    _, sub_y_list, _, _ = dataset.get_one_full_sample(timestep+1)
+                pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
+                sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
 
-            r2_scores.append(r2_score(sub_y.flatten().cpu().detach().numpy(), pred_y.flatten().cpu().detach().numpy()))
-            # save the prediction
-            os.makedirs(f'logs/raw_data/{exp_name}', exist_ok=True)
-            torch.save(pred_y, f'logs/raw_data/{exp_name}/pred_timestep_{timestep}.pth')
-            torch.save(sub_y, f'logs/raw_data/{exp_name}/gt_timestep_{timestep}.pth')
-            timestep += 1
-            if save_mode == 'wandb':
-                wandb.log({'r2_score': r2_scores[-1]})
+                plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/timestep_{timestep}')
+                
+                plot_partition(sub_y, pred_y, labels, kwargs['sub_size']+2, save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_timestep_{timestep}')
+
+                r2_scores.append(r2_score(sub_y.flatten().cpu().detach().numpy(), pred_y.flatten().cpu().detach().numpy()))
+                # save the prediction
+                os.makedirs(f'logs/raw_data/{exp_name}', exist_ok=True)
+                torch.save(pred_y, f'logs/raw_data/{exp_name}/pred_timestep_{timestep}.pth')
+                torch.save(sub_y, f'logs/raw_data/{exp_name}/gt_timestep_{timestep}.pth')
+                timestep += 1
+                if save_mode == 'wandb':
+                    wandb.log({'r2_score': r2_scores[-1]})
+        all_r2_scores.append(r2_scores)
 
     else:
         for idx in idxs:

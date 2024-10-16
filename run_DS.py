@@ -89,10 +89,10 @@ def recurrent_predict(dataset, x, sub_x_, model, sub_boundary_, num_iters):
             all_pred_y_list.append(predictions)
 
             predictions, pred_boundary_list = dataset.get_partition_domain(prediction_reconstructed, mode='test')
-            sub_x = [predictions[i:i+sub_x_limit] for i in range(num_iters-1)]
-            sub_boundary = [pred_boundary_list[i:i+sub_x_limit] for i in range(num_iters-1)]
-            sub_x.append(predictions[(num_iters-1)*sub_x_limit:])
-            sub_boundary.append(pred_boundary_list[(num_iters-1)*sub_x_limit:])
+            sub_x = [torch.stack(predictions[i:i+sub_x_limit], dim=0) for i in range(num_iters-1)]
+            sub_boundary = [torch.stack(pred_boundary_list[i:i+sub_x_limit], dim=0) for i in range(num_iters-1)]
+            sub_x.append(torch.stack(predictions[(num_iters-1)*sub_x_limit:], dim=0))
+            sub_boundary.append(torch.stack(pred_boundary_list[(num_iters-1)*sub_x_limit:], dim=0))
 
     else:
         sub_x = sub_x.to(device)

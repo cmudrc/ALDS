@@ -65,14 +65,16 @@ def train_DS(exp_name, model, dataset, train_config, **kwargs):
     os.makedirs(f'logs/models/collection_{exp_name}', exist_ok=True)
     torch.save(model.state_dict(), f'logs/models/collection_{exp_name}/model.pth')
 
-def recurrent_predict(dataset, x, sub_x, model, sub_boundary, num_iters):
+def recurrent_predict(dataset, x, sub_x_, model, sub_boundary_, num_iters):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # set maximum number of subdomains per time to predict to avoid memory issues
     sub_x_limit = 16
-    if len(sub_x) > sub_x_limit:
-        num_iters = len(sub_x) // sub_x_limit if len(sub_x) % sub_x_limit == 0 else len(sub_x) // sub_x_limit + 1
-        sub_x = [sub_x[i:i+sub_x_limit] for i in range(num_iters)]
-        sub_boundary = [sub_boundary[i:i+sub_x_limit] for i in range(num_iters)]
+    if len(sub_x_) > sub_x_limit:
+        num_iters = len(sub_x_) // sub_x_limit if len(sub_x_) % sub_x_limit == 0 else len(sub_x_) // sub_x_limit + 1
+        sub_x = [sub_x_[i:i+sub_x_limit] for i in range(num_iters-1)]
+        sub_x.append(sub_x_[(num_iters-1)*sub_x_limit:])
+        sub_boundary = [sub_boundary_[i:i+sub_x_limit] for i in range(num_iters-1)]
+        sub_boundary.append(sub_boundary_[(num_iters-1)*sub_x_limit:])
         all_pred_y_list = []
         for i in range(num_iters):
             predictions = []
@@ -82,13 +84,15 @@ def recurrent_predict(dataset, x, sub_x, model, sub_boundary, num_iters):
                 pred_y_batch_list = model(sub_x_batch, sub_boundary_batch).cpu().detach()
                 predictions += pred_y_batch_list
             # predictions = torch.cat(pred_y_list, dim=0)
-            prediction_reconstructed = dataset.reconstruct_from_partitions(x.unsqueeze(0), predictions)
+            prediction_reconstructed = dataset.reconstruct_from_partitions(x.unsqueeze(0), predictions).squeeze(0)
 
             all_pred_y_list.append(predictions)
 
             predictions, pred_boundary_list = dataset.get_partition_domain(prediction_reconstructed, mode='test')
-            sub_x = torch.Tensor([predictions[i:i+sub_x_limit] for i in range(num_iters)])
-            sub_boundary = torch.Tensor([pred_boundary_list[i:i+sub_x_limit] for i in range(num_iters)])
+            sub_x = [predictions[i:i+sub_x_limit] for i in range(num_iters-1)]
+            sub_boundary = [pred_boundary_list[i:i+sub_x_limit] for i in range(num_iters-1)]
+            sub_x.append(predictions[(num_iters-1)*sub_x_limit:])
+            sub_boundary.append(pred_boundary_list[(num_iters-1)*sub_x_limit:])
 
     else:
         sub_x = sub_x.to(device)

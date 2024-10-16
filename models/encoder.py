@@ -5,6 +5,7 @@ import torch.nn as nn
 import numpy as np
 from joblib import dump, load
 from multiprocessing import Pool
+from time import time
 
 
 class Encoder():
@@ -256,9 +257,17 @@ class SpectrumEncoder(Encoder):
         return np.array(latent_space)
 
     def get_latent(self, x):
+        # print('Computing latent space')
+        # time_start = time()
         x = [(data, self.domain_size, self.domain_size) for data in x]
+        # domain_size_list = [self.domain_size for _ in range(len(x))]
+        # time_sep = time()
+        # print(f'Time to separate data: {time_sep - time_start}')
         with Pool() as p:
             latent_space = p.map(self._compute_tke_spectrum, x)
+            # latent_space = p.starmap(self._compute_tke_spectrum, zip(x, domain_size_list, domain_size_list))
+        # time_end = time()
+        # print(f'Time to compute latent space: {time_end - time_sep}')
         return np.array(latent_space)
 
     def load_model(self, path):

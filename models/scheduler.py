@@ -26,7 +26,8 @@ class PartitionScheduler():
         self.model = model
         self.dataset = dataset
 
-        self.subsets = self._train_partitions(num_partitons, train)
+        if train:
+            self.subsets = self._train_partitions(num_partitons, train)
         if not train:
             self.models = self._load_models()
 
@@ -38,6 +39,8 @@ class PartitionScheduler():
     
     def _load_models(self):
         models = []
+        self.encoder.load_model('logs/models/collection_{}'.format(self.name))
+        self.classifier.load_model('logs/models/collection_{}'.format(self.name))
         for i in range(self.num_partitions):
             model = self._initialize_model(self.model, 8, 8, width=64)
             model.load_state_dict(torch.load('logs/models/collection_{}/partition_{}.pth'.format(self.name, i), map_location=torch.device('cpu')))

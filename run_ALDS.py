@@ -24,9 +24,11 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
                 x, sub_x_list, _ = dataset.get_one_full_sample(idx)
                 all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_tensor, num_iters=kwargs['timesteps'])
             except:
+                print('starting data loading')
                 x, sub_x_list, sub_boundary_list, _ = dataset.get_one_full_sample(idx)
                 sub_x_tensor = torch.stack(sub_x_list)
                 sub_boundary_tensor = torch.stack(sub_boundary_list)    
+                print('data loaded')
 
                 all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_tensor, sub_boundary_tensor, num_iters=kwargs['timesteps'])
             
@@ -105,6 +107,7 @@ if __name__ == '__main__':
     classifier = init_classifier(classifier_name, **exp_config)
     model = init_model(model_name, **exp_config)
     dataset = init_dataset(dataset_name, **exp_config)
+    print('Dataset loaded!')
 
     # train_dataset, test_dataset = train_test_split(dataset, test_size=0.2, random_state=42)
 

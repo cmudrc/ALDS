@@ -16,10 +16,10 @@ def train_ALDS(exp_name, encoder, classifier, model, dataset, num_partitions, tr
 def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partitions, save_mode, **kwargs):
     scheduler = PartitionScheduler(exp_name, num_partitions, dataset, encoder, classifier, model, train=False)
     
-    r2_scores = []
     if 'timesteps' in kwargs:
         all_r2_scores = []
         for idx in idxs:
+            r2_scores = []
             try:
                 x, sub_x_list, _ = dataset.get_one_full_sample(idx)
                 all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_tensor, num_iters=kwargs['timesteps'])
@@ -55,6 +55,7 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
 
     else:
         for idx in idxs:
+            r2_scores = []
             x, sub_x_list, sub_y_list = dataset.get_one_full_sample(idx)
             sub_x_tensor = torch.stack(sub_x_list)
             pred_y_list, labels = scheduler.predict(sub_x_tensor)

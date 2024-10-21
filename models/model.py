@@ -573,3 +573,19 @@ class HeteroGNS(nn.Module):
         x = self.processor(x, boundary)
         x = self.decoder(x)
         return x
+
+
+class DeepONet(nn.Module):
+    def __init__(
+            self,
+            input_features: int,
+            output_features: int,
+            latent_dim: int = 128,
+            nmlp_layers: int = 2,
+            mlp_hidden_dim: int = 128,
+            activation: nn.Module = nn.ELU,
+            boundary_dim: int = 128,
+    ):
+        super(DeepONet, self).__init__()
+
+        

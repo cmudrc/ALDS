@@ -961,3 +961,159 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
                     u_input_list, boundary_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
                     u_label_list, _ = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
         return u_input.unsqueeze(-1), u_input_list, boundary_input_list, u_label_list
+    
+
+class JHTDB_BOUNDARY(Dataset):
+    def __init__(self, root, tstart, tend, fields, dataset, partition=False, **kwargs):
+        self.root = root
+        self.tstart = tstart
+        self.tend = tend
+        self.fields = fields
+        self.dataset = dataset
+        self.flag_partition = partition
+        # self.jhtdb = pyJHTDB.libJHTDB()
+        # self.jhtdb.initialize()
+        # self.jhtdb.lib.turblibSetExitOnError(ctypes.c_int(0))
+        # self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
+        
+        if partition:
+            self.sub_size = kwargs['sub_size']
+
+        self.data = self.process(partition)
+
+    def _download(self):
+        os.makedirs(os.path.join(self.root, 'raw'), exist_ok=True)
+
+        result = self.jhtdb.getbigCutout(
+            t_start=self.tstart,
+            t_end=self.tend,
+            t_step=1,
+            fields=self.fields,
+            data_set=self.dataset,
+            start=np.array([1, 1, 512], dtype=np.int),
+            end=np.array([1024, 1024, 512], dtype=np.int),
+            step=np.array([1, 1, 1], dtype=np.int),
+            filename='data',
+        )
+
+        self.jhtdb.finalize()
+
+        shutil.move('data.xmf', os.path.join(self.root, 'raw'))
+        shutil.move('data.h5', os.path.join(self.root, 'raw'))
+
+        print(result.shape)
+
+    def process(self, flag_partition=False):
+        if not (os.path.exists(os.path.join(self.root, 'raw', 'data.h5')) or os.path.exists(os.path.join(self.root, 'processed', 'data.pt'))):
+            self._download()
+        if not os.path.exists(os.path.join(self.root, 'processed', 'data.pt')):
+            self._process(flag_partition)
+        data = torch.load(os.path.join(self.root, 'processed', 'data.pt'))
+        return data
+
+    def _process(self, flag_partition=False):
+        os.makedirs(os.path.join(self.root, 'processed'), exist_ok=True)
+        u_list = []
+        with h5py.File(os.path.join(self.root, 'raw', 'data.h5'), 'r') as f:
+            for i in range(self.tend - self.tstart - 5):
+                u_idx = str(i+1).rjust(4, '0')
+                u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
+                u_input = torch.tensor(u_input[0, :, :, :])
+                u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
+                # normalize the input
+                u_input = (u_input - torch.min(u_input)) / (torch.max(u_input) - torch.min(u_input))
+                # u_label at the next time step
+                u_label_idx = str(i+4).rjust(4, '0')  
+                u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
+                u_label = torch.tensor(u_label[0, :, :, :])
+                u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
+                # normalize the label
+                u_label = (u_label - torch.min(u_label)) / (torch.max(u_label) - torch.min(u_label))
+                if flag_partition:
+                    u_input_list, bc_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
+                    u_label_list, _ = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
+                    for u_input, bc_input, u_label in zip(u_input_list, bc_input_list, u_label_list):
+                        u_list.append([[u_input, bc_input], u_label])
+                else:
+                    u_list.append([u_input, u_label])
+            print('Processed data at time step {}'.format(i))
+        torch.save(u_list, os.path.join(self.root, 'processed', 'data.pt'))
+
+    def get_partition_domain(self, x, mode, displacement=0):
+        # pad the domain symmetrically to make it divisible by sub_size
+        # print(x.shape)
+        partition_sub_size = self.sub_size + 2
+        # x, pad_size_x, pad_size_y = self.symmetric_padding(x, mode)
+        # partition the domain into num_partitions subdomains of the same size
+        x_list = []
+        boundary_list = []
+        num_partitions_dim_x = x.shape[1] // partition_sub_size
+        num_partitions_dim_y = x.shape[0] // partition_sub_size
+
+        for i in range(num_partitions_dim_x):
+            for j in range(num_partitions_dim_y):
+                cur_x = x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, :]
+                # create a list that holds all boundary coordinates and boundary values
+                boundary_bottom = torch.zeros((partition_sub_size, 3))
+                boundary_bottom[:, 0] =torch.linspace(0, partition_sub_size-1, partition_sub_size)
+                boundary_bottom[:, 2] = x[j*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, 0]
+                boundary_top = torch.zeros((partition_sub_size, 3))
+                boundary_top[:, 0] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
+                boundary_top[:, 1] = partition_sub_size-1
+                boundary_top[:, 2] = x[(j+1)*partition_sub_size-1, i*partition_sub_size:(i+1)*partition_sub_size, 0]
+                boundary_left = torch.zeros((partition_sub_size, 3))
+                boundary_left[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
+                boundary_left[:, 2] = x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size, 0]
+                boundary_right = torch.zeros((partition_sub_size, 3))
+                boundary_right[:, 0] = partition_sub_size-1
+                boundary_right[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
+                boundary_right[:, 2] = x[j*partition_sub_size:(j+1)*partition_sub_size, (i+1)*partition_sub_size-1, 0]
+                bc_values = torch.vstack((boundary_bottom, boundary_top, boundary_left, boundary_right))
+                boundary_list.append(bc_values)
+                dist2bd_x = torch.linspace(0, partition_sub_size-1, partition_sub_size).unsqueeze(0).repeat(partition_sub_size, 1)
+                dist2bd_y = torch.linspace(0, partition_sub_size-1, partition_sub_size).unsqueeze(1).repeat(1, partition_sub_size)
+
+                dist2bd = torch.stack((dist2bd_x, dist2bd_y), dim=-1)
+                cur_x = torch.cat((cur_x, dist2bd), dim=-1)
+                x_list.append(cur_x)
+
+        return x_list, boundary_list
+        
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        return self.data[idx]
+    
+    def get_one_full_sample(self, idx):
+        if not self.flag_partition:
+            return self.data[idx]
+        else:
+            valid_idx = self.valid_tsteps[idx]
+            if self.valid_tsteps[idx]+3 in self.valid_tsteps:
+                valid_label_idx = self.valid_tsteps[idx] + 3
+            else:
+                raise ValueError('Label data not found')
+            with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(valid_idx)), 'r') as f:
+                u_idx = str(valid_idx).rjust(4, '0')
+                u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
+                u_input = torch.tensor(u_input[0, :, :, :])
+                u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
+                # print(u_input.shape)
+                # u_label at the next time step
+                with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(valid_label_idx)), 'r') as f:
+                    u_label_idx = str(valid_label_idx).rjust(4, '0')
+                    u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
+                    u_label = torch.tensor(u_label[0, :, :, :])
+                    u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
+                    u_input_list, boundary_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
+                    u_label_list, _ = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
+        return u_input.unsqueeze(-1), u_input_list, boundary_input_list, u_label_list
+    
+    def process(self, flag_partition=False):
+        if not (os.path.exists(os.path.join(self.root, 'raw', 'data.h5')) or os.path.exists(os.path.join(self.root, 'processed', 'data.pt'))):
+            self._download()
+        if not os.path.exists(os.path.join(self.root, 'processed', 'data.pt')):
+            self._process(flag_partition)
+        data = torch.load(os.path.join(self.root, 'processed', 'data.pt'))
+        return data

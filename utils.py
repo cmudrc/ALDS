@@ -158,6 +158,8 @@ def init_dataset(name, **kwargs):
         return JHTDB_RECTANGULAR(**kwargs)
     elif name == 'transition_bc':
         return JHTDB_RECTANGULAR_BOUNDARY(**kwargs)
+    elif name == 'jhtdb_bc':
+        return JHTDB_BOUNDARY(**kwargs)
     else:
         raise ValueError(f'Invalid dataset name: {name}')
     

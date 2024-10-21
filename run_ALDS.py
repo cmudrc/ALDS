@@ -53,7 +53,7 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
                 timestep += 1
                 if save_mode == 'wandb':
                     wandb.log({'r2_score': r2_scores[-1]})
-        all_r2_scores.append(r2_scores)
+            all_r2_scores.append(r2_scores)
 
     else:
         for idx in idxs:
@@ -78,7 +78,7 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
                 wandb.log({'r2_score': r2_scores[-1]})
 
     # save r2 scores
-    np.save(f'logs/raw_data/{exp_name}/r2_scores.npy', r2_scores)
+    np.save(f'logs/raw_data/{exp_name}/r2_scores.npy', all_r2_scores)
 
     # eval all sub models
     # scheduler.evaluate_sub_models()

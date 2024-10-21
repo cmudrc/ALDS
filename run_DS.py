@@ -68,7 +68,7 @@ def train_DS(exp_name, model, dataset, train_config, **kwargs):
 def recurrent_predict(dataset, x, sub_x_, model, sub_boundary_, num_iters):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # set maximum number of subdomains per time to predict to avoid memory issues
-    sub_x_limit = 16
+    sub_x_limit = 64
     if len(sub_x_) > sub_x_limit:
         num_iters = len(sub_x_) // sub_x_limit if len(sub_x_) % sub_x_limit == 0 else len(sub_x_) // sub_x_limit + 1
         sub_x = [sub_x_[i:i+sub_x_limit] for i in range(num_iters-1)]
@@ -112,7 +112,7 @@ def recurrent_predict(dataset, x, sub_x_, model, sub_boundary_, num_iters):
             sub_x = torch.stack(predictions)
             sub_boundary = torch.stack(pred_boundary_list)
         
-    return all_pred_y_list, all_labels
+    return all_pred_y_list
     
 
 def pred_DS(idxs, exp_name, model, dataset, save_mode, **kwargs):
@@ -126,16 +126,16 @@ def pred_DS(idxs, exp_name, model, dataset, save_mode, **kwargs):
             r2_scores = []
             try:
                 x, sub_x_list, _ = dataset.get_one_full_sample(idx)
-                all_pred_y_list, all_labels = recurrent_predict(dataset, x, sub_x_tensor, model, num_iters=kwargs['timesteps'])
+                all_pred_y_list = recurrent_predict(dataset, x, sub_x_tensor, model, num_iters=kwargs['timesteps'])
             except:
                 x, sub_x_list, sub_boundary_list, _ = dataset.get_one_full_sample(idx)
                 sub_x_tensor = torch.stack(sub_x_list)
                 sub_boundary_tensor = torch.stack(sub_boundary_list)    
 
-                all_pred_y_list, all_labels = recurrent_predict(dataset, x, sub_x_tensor, model, sub_boundary_tensor, num_iters=kwargs['timesteps'])
+                all_pred_y_list = recurrent_predict(dataset, x, sub_x_tensor, model, sub_boundary_tensor, num_iters=kwargs['timesteps'])
             
             timestep = idx
-            for pred_y_list, labels in zip(all_pred_y_list, all_labels):
+            for pred_y_list in all_pred_y_list:
                 try:
                     _, sub_y_list, _ = dataset.get_one_full_sample(timestep+1)
                 except:
@@ -145,7 +145,7 @@ def pred_DS(idxs, exp_name, model, dataset, save_mode, **kwargs):
 
                 plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/timestep_{timestep}')
                 
-                plot_partition(sub_y, pred_y, labels, kwargs['sub_size']+2, save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_timestep_{timestep}')
+                # plot_partition(sub_y, pred_y, labels, kwargs['sub_size']+2, save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_timestep_{timestep}')
 
                 r2_scores.append(r2_score(sub_y.flatten().cpu().detach().numpy(), pred_y.flatten().cpu().detach().numpy()))
                 # save the prediction
@@ -155,7 +155,7 @@ def pred_DS(idxs, exp_name, model, dataset, save_mode, **kwargs):
                 timestep += 1
                 if save_mode == 'wandb':
                     wandb.log({'r2_score': r2_scores[-1]})
-        all_r2_scores.append(r2_scores)
+            all_r2_scores.append(r2_scores)
 
     else:
         r2_scores = []

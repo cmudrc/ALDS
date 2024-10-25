@@ -137,9 +137,9 @@ def pred_DS(idxs, exp_name, model, dataset, save_mode, **kwargs):
             timestep = idx
             for pred_y_list in all_pred_y_list:
                 try:
-                    _, sub_y_list, _ = dataset.get_one_full_sample(timestep+1)
+                    _, sub_y_list, _ = dataset.get_one_full_sample(timestep+3)
                 except:
-                    _, sub_y_list, _, _ = dataset.get_one_full_sample(timestep+1)
+                    _, sub_y_list, _, _ = dataset.get_one_full_sample(timestep+3)
                 pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
                 sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
 

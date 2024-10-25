@@ -975,6 +975,7 @@ class JHTDB_BOUNDARY(Dataset):
         # self.jhtdb.initialize()
         # self.jhtdb.lib.turblibSetExitOnError(ctypes.c_int(0))
         # self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
+        self.valid_tsteps = np.arange(self.tstart, self.tend+1, 1)
         
         if partition:
             self.sub_size = kwargs['sub_size']
@@ -1089,25 +1090,24 @@ class JHTDB_BOUNDARY(Dataset):
         if not self.flag_partition:
             return self.data[idx]
         else:
-            valid_idx = self.valid_tsteps[idx]
-            if self.valid_tsteps[idx]+3 in self.valid_tsteps:
-                valid_label_idx = self.valid_tsteps[idx] + 3
-            else:
-                raise ValueError('Label data not found')
-            with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(valid_idx)), 'r') as f:
+            with h5py.File(os.path.join(self.root, 'raw', 'data.h5'), 'r') as f:
+                valid_idx = self.valid_tsteps[idx]
+                if self.valid_tsteps[idx]+4 in self.valid_tsteps:
+                    valid_label_idx = self.valid_tsteps[idx] + 4
+                else:
+                    raise ValueError('Label data not found')
                 u_idx = str(valid_idx).rjust(4, '0')
                 u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
                 u_input = torch.tensor(u_input[0, :, :, :])
                 u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
                 # print(u_input.shape)
                 # u_label at the next time step
-                with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(valid_label_idx)), 'r') as f:
-                    u_label_idx = str(valid_label_idx).rjust(4, '0')
-                    u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
-                    u_label = torch.tensor(u_label[0, :, :, :])
-                    u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
-                    u_input_list, boundary_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
-                    u_label_list, _ = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
+                u_label_idx = str(valid_label_idx).rjust(4, '0')
+                u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
+                u_label = torch.tensor(u_label[0, :, :, :])
+                u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
+                u_input_list, boundary_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
+                u_label_list, _ = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
         return u_input.unsqueeze(-1), u_input_list, boundary_input_list, u_label_list
     
     def process(self, flag_partition=False):
@@ -1117,3 +1117,31 @@ class JHTDB_BOUNDARY(Dataset):
             self._process(flag_partition)
         data = torch.load(os.path.join(self.root, 'processed', 'data.pt'))
         return data
+    
+    def reconstruct_from_partitions(self, x, x_list, displacement=0):
+        # reconstruct the domain from the partitioned subdomains
+        # print(self.sub_size)
+        # print(x.shape)
+        partition_sub_size = self.sub_size + 2
+
+        # print(self.sub_size)
+        # print(num_partitions_dim_x, num_partitions_dim_y)
+
+        num_partitions_dim_x = x.shape[2] // partition_sub_size
+        num_partitions_dim_y = x.shape[1] // partition_sub_size
+
+        if len(x.shape) == 3:    
+            x = torch.zeros(num_partitions_dim_y*partition_sub_size, num_partitions_dim_x*partition_sub_size, x.shape[-1])
+        elif len(x.shape) == 4:
+            x = torch.zeros(x.shape[0], num_partitions_dim_y*partition_sub_size, num_partitions_dim_x*partition_sub_size, x.shape[-1])
+        else:
+            raise ValueError('Invalid tensor shape')
+        # print(x.shape)
+        # print(len(x_list))
+        # if the domain can be fully partitioned into subdomains of the same size
+        # if len(x_list) == num_partitions_dim**2:
+        for i in range(num_partitions_dim_x):
+            for j in range(num_partitions_dim_y):
+                x[:, j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, :] = x_list[i*num_partitions_dim_y + j][:, :, 0].unsqueeze(-1)
+
+        return x

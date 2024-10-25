@@ -1,5 +1,5 @@
 # must have configs
-n_clusters: 3
+n_clusters: 2
 save_mode: 'save_png'
 
 # encoder configs
@@ -18,14 +18,14 @@ nmlp_layers: 2
 mlp_hidden_dim: 128
 
 # data configs
-root: 'data/jhtdb_bc'
+root: 'data/jhtdb_transition_bc'
 tstart: 1
 tend: 500
 fields: 'u'
-dataset: 'isotropic1024coarse'
+dataset: 'transition_bl'
 partition: True
 sub_size: 12
 
 # pred configs
-idxs: [1, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450]
+idxs: [1, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480]
 timesteps: 20

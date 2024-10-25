@@ -35,9 +35,9 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
             timestep = idx
             for pred_y_list, labels in zip(all_pred_y_list, all_labels):
                 try:
-                    _, sub_y_list, _ = dataset.get_one_full_sample(timestep+1)
+                    _, sub_y_list, _ = dataset.get_one_full_sample(timestep+3)
                 except:
-                    _, sub_y_list, _, _ = dataset.get_one_full_sample(timestep+1)
+                    _, sub_y_list, _, _ = dataset.get_one_full_sample(timestep+3)
                 pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
                 sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
 
@@ -50,7 +50,7 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
                 os.makedirs(f'logs/raw_data/{exp_name}', exist_ok=True)
                 torch.save(pred_y, f'logs/raw_data/{exp_name}/pred_timestep_{timestep}.pth')
                 torch.save(sub_y, f'logs/raw_data/{exp_name}/gt_timestep_{timestep}.pth')
-                timestep += 1
+                timestep += 4
                 if save_mode == 'wandb':
                     wandb.log({'r2_score': r2_scores[-1]})
             all_r2_scores.append(r2_scores)

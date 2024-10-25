@@ -5,6 +5,7 @@ from models.classifier import *
 from models.encoder import *
 from models.model import *
 from models.scheduler import *
+from deepxde.nn.pytorch import *
 from dataset.MatDataset import *
 import yaml
 import matplotlib.pyplot as plt
@@ -147,6 +148,8 @@ def init_model(type, in_channels, out_channels, **kwargs):
         return TEECNetConv(in_channels, out_channels, **kwargs)
     elif type == 'beno':
         return HeteroGNS(in_channels, out_channels, **kwargs)
+    elif type == 'deeponet':
+        return DeepONet(in_channels, out_channels, **kwargs)
     else:
         raise ValueError(f'Invalid model type: {type}')
     

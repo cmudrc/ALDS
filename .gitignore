@@ -165,3 +165,5 @@ data/
 
 # logs
 logs/figures/
+logs/raw_data/
+wandb/

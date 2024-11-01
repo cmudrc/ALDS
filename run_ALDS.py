@@ -7,6 +7,7 @@ from utils import *
 
 from utils import parse_args, plot_prediction
 from models.scheduler import PartitionScheduler
+import multiprocessing
 
 
 def train_ALDS(exp_name, encoder, classifier, model, dataset, num_partitions, train_config, **kwargs):
@@ -89,6 +90,7 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
 
 
 if __name__ == '__main__':
+    multiprocessing.set_start_method("spawn", force=True)
     args = parse_args()
     run_mode = args.mode
     encoder_name = args.encoder

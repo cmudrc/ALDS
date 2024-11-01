@@ -1,0 +1,26 @@
+# must have configs
+n_clusters: 3
+save_mode: 'save_png'
+
+# encoder configs
+n_components: 20
+domain_size: 0.1963495
+
+# classifier configs
+
+# model configs
+in_channels: 3
+out_channels: 1
+branch_size: 20
+trunk_size: 20
+activation: 'tanh'
+kernel_initializer: 'glorot_normal'
+
+# data configs
+root: 'data/jhtdb_transition_bc'
+tstart: 1
+tend: 500
+fields: 'u'
+dataset: 'transition_bl'
+partition: True
+sub_size: 12

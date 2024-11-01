@@ -7,8 +7,8 @@ from torch.nn.init import uniform_ as reset
 import torch.nn.functional as F
     
 from models.transformer import *
-import deepxde as dde
-from deepxde.nn.pytorch import DeepONet
+# import deepxde as dde
+# from deepxde.nn.pytorch import DeepONet
 # from torch_scatter import scatter_softmax
 
 

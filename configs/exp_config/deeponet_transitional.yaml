@@ -9,12 +9,11 @@ domain_size: 0.1963495
 # classifier configs
 
 # model configs
-in_channels: 3
+in_channels: [3, 128, 128, 128]
 out_channels: 1
-branch_size: 20
-trunk_size: 20
+trunk_size: [2, 128, 128, 128]
 activation: 'tanh'
-kernel_initializer: 'glorot_normal'
+kernel_initializer: 'Glorot normal'
 
 # data configs
 root: 'data/jhtdb_transition_bc'

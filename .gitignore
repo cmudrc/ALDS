@@ -167,3 +167,4 @@ data/
 logs/figures/
 logs/raw_data/
 wandb/
+plots/

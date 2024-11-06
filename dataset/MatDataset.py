@@ -927,7 +927,7 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         self.valid_tsteps = valid_tsteps
         if not os.path.exists(os.path.join(self.root, 'processed', 'data.pt')):
             self._process(flag_partition)
-        data = torch.load(os.path.join(self.root, 'processed', 'data.pt'))
+        data = torch.load(os.path.join(self.root, 'processed', 'data.pt'), map_location=torch.device('cpu'))
         return data
     
     def __len__(self):

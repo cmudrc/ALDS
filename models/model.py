@@ -7,8 +7,8 @@ from torch.nn.init import uniform_ as reset
 import torch.nn.functional as F
     
 from models.transformer import *
-# import deepxde as dde
-# from deepxde.nn.pytorch import DeepONet
+import deepxde as dde
+from deepxde.nn.pytorch import DeepONet
 # from torch_scatter import scatter_softmax
 
 
@@ -575,4 +575,21 @@ class HeteroGNS(nn.Module):
         x = self.decoder(x)
         return x
 
+
+class adaptDeepONet(nn.Module):
+    def __init__(self, branch_size, trunk_size, activation, kernel_initializer, num_outputs):
+        super(adaptDeepONet, self).__init__()
+        self.model = DeepONet(branch_size, trunk_size, activation, kernel_initializer, num_outputs)
+
+    def forward(self, x, boundary):
+        # grid = self.get_grid(x.shape, x.device)
+        return self.model(x)
     
+    def get_grid(self, shape, device):
+        batchsize, size_x, size_y = shape[0], shape[1], shape[2]
+        # assume square grid, compute overall grid size
+        gridx = torch.linspace(0, size_x, size_x)
+        gridx = gridx.reshape(1, size_x, 1, 1).repeat([batchsize, 1, size_y, 1])
+        gridy = torch.linspace(0, size_y, size_y)
+        gridy = gridy.reshape(1, 1, size_y, 1).repeat([batchsize, size_x, 1, 1])
+        return torch.cat((gridx, gridy), dim=-1).to(device)

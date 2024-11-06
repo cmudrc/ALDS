@@ -27,7 +27,7 @@ def get_cur_time():
 def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
     window_size_x, window_size_y = y_pred.shape[2], y_pred.shape[1]
     xx, yy = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y))
-    fig, axs = plt.subplots(3, 1, figsize=(20, 5))
+    fig, axs = plt.subplots(3, 1, figsize=(20*window_size_x/window_size_y, 3*20))
     axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
     axs[0].set_title('(a) Ground truth')
     axs[0].axis('off')
@@ -60,7 +60,7 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     # cover a colored mask on the prediction indicating the partition
     window_size_x, window_size_y = y_pred.shape[2], y_pred.shape[1]
     xx, yy = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y))
-    fig, axs = plt.subplots(3, 1, figsize=(20, 5))
+    fig, axs = plt.subplots(3, 1, figsize=(20*window_size_x/window_size_y, 3*20))
 
     colormap = plt.cm.tab20
 
@@ -149,7 +149,7 @@ def init_model(type, in_channels, out_channels, **kwargs):
     elif type == 'beno':
         return HeteroGNS(in_channels, out_channels, **kwargs)
     elif type == 'deeponet':
-        return DeepONet(kwargs['branch_size'], kwargs['trunk_size'], activation=kwargs['activation'], \
+        return adaptDeepONet(in_channels, kwargs['trunk_size'], activation=kwargs['activation'], \
                         kernel_initializer=kwargs['kernel_initializer'], num_outputs=out_channels)
     else:
         raise ValueError(f'Invalid model type: {type}')

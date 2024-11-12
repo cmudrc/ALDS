@@ -580,11 +580,18 @@ class adaptDeepONet(nn.Module):
     def __init__(self, branch_size, trunk_size, activation, kernel_initializer, num_outputs):
         super(adaptDeepONet, self).__init__()
         self.model = DeepONet(branch_size, trunk_size, activation, kernel_initializer, num_outputs)
+        self.output = num_outputs
 
     def forward(self, x, boundary):
         grid = self.get_grid(x.shape, x.device)
+        # x = x.reshape(x.shape[0], x.shape[1]*x.shape[2], x.shape[3])
+        # grid = grid.reshape(grid.shape[0], grid.shape[1]*grid.shape[2], grid.shape[3])
         x = [x, grid]
-        return self.model(x)
+        output = self.model(x)
+        print(output)
+        output = output.reshape(x[0].shape[0], x[0].shape[1], x[0].shape[2], self.output)
+        
+        return output
     
     def get_grid(self, shape, device):
         batchsize, size_x, size_y = shape[0], shape[1], shape[2]

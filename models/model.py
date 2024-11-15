@@ -7,8 +7,8 @@ from torch.nn.init import uniform_ as reset
 import torch.nn.functional as F
     
 from models.transformer import *
-import deepxde as dde
-from deepxde.nn.pytorch import DeepONet
+# import deepxde as dde
+# from deepxde.nn.pytorch import DeepONet
 # from torch_scatter import scatter_softmax
 
 
@@ -587,9 +587,10 @@ class adaptDeepONet(nn.Module):
         # x = x.reshape(x.shape[0], x.shape[1]*x.shape[2], x.shape[3])
         # grid = grid.reshape(grid.shape[0], grid.shape[1]*grid.shape[2], grid.shape[3])
         x = [x, grid]
-        output = self.model(x)
-        print(output)
-        output = output.reshape(x[0].shape[0], x[0].shape[1], x[0].shape[2], self.output)
+        output = self.model(x).squeeze(-1)
+        output = output.T.unsqueeze(-1)
+        # print(output)
+        output = output.reshape(x[0].shape[0], x[0].shape[1], x[0].shape[2], 1)
         
         return output
     

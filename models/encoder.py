@@ -1,5 +1,6 @@
 import os
 from sklearn.decomposition import PCA
+from scipy.interpolate import griddata
 import torch
 import torch.nn as nn
 import numpy as np
@@ -97,6 +98,23 @@ class PCAEncoder(Encoder):
         self.model = PCA(n_components=n_components)
 
     def train(self, dataset, save_model=False, path=None):
+        # split training data by graph and matrix format and call the appropriate training function
+        # if dataset is a torch dataset, send to _train_matrix, if dataset is a torch_geometric InMemoryDataset, send to _train_graph
+        if type(dataset[0]) == tuple:
+            self._train_matrix(dataset, save_model, path)
+        else:
+            self._train_graph(dataset, save_model, path)
+
+    def _train_graph(self, dataset, save_model=False, path=None):
+        data_space = []
+        for data in dataset:
+            x = data.x.cpu().detach().numpy()
+            data_space.append(x.reshape(-1))
+        self.model.fit(np.array(data_space))
+        if save_model:
+            self._save_model(path)
+
+    def _train_matrix(self, dataset, save_model=False, path=None):
         data_space = []
         for data in dataset:
             try:
@@ -246,28 +264,94 @@ class SpectrumEncoder(Encoder):
         tke_spectrum = np.log(tke_spectrum[1:] + 1e-8)
         tke_spectrum = (tke_spectrum - np.min(tke_spectrum)) / (np.max(tke_spectrum) - np.min(tke_spectrum))
         return tke_spectrum
+    
+    @staticmethod
+    def _compute_tke_spectrum_3d(points, physics, grid_resolution):
+        """
+        Computes the turbulent kinetic energy spectrum from sparse 3D data.
+
+        Args:
+            points (np.ndarray): Array of shape [num_points, 3] with 3D coordinates (x, y, z).
+            physics (np.ndarray): Array of shape [num_points, 1] with physics data (e.g., velocity magnitude).
+            grid_resolution (tuple): Resolution of the regular grid (nx, ny, nz).
+        
+        Returns:
+            np.ndarray: Normalized 1D TKE spectrum.
+        """
+        # 1. Define a regular grid
+        x = np.linspace(np.min(points[:, 0]), np.max(points[:, 0]), grid_resolution[0])
+        y = np.linspace(np.min(points[:, 1]), np.max(points[:, 1]), grid_resolution[1])
+        z = np.linspace(np.min(points[:, 2]), np.max(points[:, 2]), grid_resolution[2])
+        grid_x, grid_y, grid_z = np.meshgrid(x, y, z, indexing='ij')
+
+        # 2. Interpolate sparse data onto the regular grid
+        grid_values = griddata(points, physics.flatten(), (grid_x, grid_y, grid_z), method='linear', fill_value=0)
+
+        # 3. Compute 3D FFT
+        uf = np.fft.fftn(grid_values, axes=(0, 1, 2))
+
+        # 4. Compute point-wise turbulent kinetic energy spectrum
+        Ef = 0.5 * (uf * np.conj(uf)).real
+
+        # 5. Integrate over spherical shells in 3D
+        nx, ny, nz = grid_resolution
+        kxmax, kymax, kzmax = nx // 2, ny // 2, nz // 2
+        tke_spectrum = np.zeros(nx // 2)  # Only need half due to symmetry
+
+        for i in range(nx):
+            rkx = i - nx if i > kxmax else i
+            for j in range(ny):
+                rky = j - ny if j > kymax else j
+                for k in range(nz):
+                    rkz = k - nz if k > kzmax else k
+                    rk = np.sqrt(rkx**2 + rky**2 + rkz**2)
+                    k_index = int(np.round(rk))
+                    if k_index < len(tke_spectrum):
+                        tke_spectrum[k_index] += Ef[i, j, k]
+
+        # 6. Normalize spectrum
+        tke_spectrum = np.log(tke_spectrum[1:] + 1e-8)
+        tke_spectrum = (tke_spectrum - np.min(tke_spectrum)) / (np.max(tke_spectrum) - np.min(tke_spectrum))
 
     def get_latent_space(self, dataset):
-        try:
-            dataset = [[data[0][0][:, :, 0], self.domain_size, self.domain_size] for data in dataset]
-        except:
-            dataset = [[data[0], self.domain_size, self.domain_size] for data in dataset]
-        with Pool() as p:
-            latent_space = p.map(self._compute_tke_spectrum, dataset)
+        # determine if the dataset is a torch matrix dataset or a torch_geometric dataset
+        if type(dataset[0]) == tuple:
+            try:
+                dataset = [[data[0][0][:, :, 0], self.domain_size, self.domain_size] for data in dataset]
+            except:
+                dataset = [[data[0], self.domain_size, self.domain_size] for data in dataset]
+            with Pool() as p:
+                latent_space = p.map(self._compute_tke_spectrum, dataset)
+        else:
+            latent_space = []
+            for data in dataset:
+                points = data.pos.cpu().detach().numpy()
+                physics = data.y.cpu().detach().numpy()
+                latent_space.append(self._compute_tke_spectrum_3d(points, physics, (self.domain_size, self.domain_size, self.domain_size)))
+
         return np.array(latent_space)
 
     def get_latent(self, x):
-        # print('Computing latent space')
-        # time_start = time()
-        x = [(data, self.domain_size, self.domain_size) for data in x]
-        # domain_size_list = [self.domain_size for _ in range(len(x))]
-        # time_sep = time()
-        # print(f'Time to separate data: {time_sep - time_start}')
-        with Pool() as p:
-            latent_space = p.map(self._compute_tke_spectrum, x)
-            # latent_space = p.starmap(self._compute_tke_spectrum, zip(x, domain_size_list, domain_size_list))
-        # time_end = time()
-        # print(f'Time to compute latent space: {time_end - time_sep}')
+        # determine if the data object is a torch matrix or a torch_geometric object
+        if type(x) == tuple:
+
+            # print('Computing latent space')
+            # time_start = time()
+            x = [(data, self.domain_size, self.domain_size) for data in x]
+            # domain_size_list = [self.domain_size for _ in range(len(x))]
+            # time_sep = time()
+            # print(f'Time to separate data: {time_sep - time_start}')
+            with Pool() as p:
+                latent_space = p.map(self._compute_tke_spectrum, x)
+                # latent_space = p.starmap(self._compute_tke_spectrum, zip(x, domain_size_list, domain_size_list))
+            # time_end = time()
+            # print(f'Time to compute latent space: {time_end - time_sep}')
+        else:
+            latent_space = []
+            for data in x:
+                points = data.pos.cpu().detach().numpy()
+                physics = data.y.cpu().detach().numpy()
+                latent_space.append(self._compute_tke_spectrum_3d(points, physics, (self.domain_size, self.domain_size, self.domain_size)))
         return np.array(latent_space)
 
     def load_model(self, path):

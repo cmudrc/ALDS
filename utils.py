@@ -27,7 +27,7 @@ def get_cur_time():
 def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
     window_size_x, window_size_y = y_pred.shape[2], y_pred.shape[1]
     xx, yy = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y))
-    fig, axs = plt.subplots(3, 1, figsize=(20*window_size_x/window_size_y, 3*20))
+    fig, axs = plt.subplots(3, 1, figsize=(10*window_size_x/window_size_y, 3*10))
     axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
     axs[0].set_title('(a) Ground truth')
     axs[0].axis('off')

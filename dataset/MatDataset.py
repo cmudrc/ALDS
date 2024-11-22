@@ -1080,7 +1080,7 @@ class JHTDB_BOUNDARY(Dataset):
                 cur_x = torch.cat((cur_x, dist2bd), dim=-1)
                 x_list.append(cur_x)
 
-        return x_list, boundary_list
+        return x_list, boundary_list  
         
     def __len__(self):
         return len(self.data)

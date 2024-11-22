@@ -27,7 +27,7 @@ def get_cur_time():
 def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
     window_size_x, window_size_y = y_pred.shape[2], y_pred.shape[1]
     xx, yy = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y))
-    fig, axs = plt.subplots(3, 1, figsize=(10*window_size_x/window_size_y, 3*10))
+    fig, axs = plt.subplots(3, 1, figsize=(5*window_size_x/window_size_y, 3*5))
     axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
     axs[0].set_title('(a) Ground truth')
     axs[0].axis('off')
@@ -39,7 +39,7 @@ def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
     axs[2].axis('off')
     # add colorbar and labels to the rightmost plot
     cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
-    cbar.set_label('Absolute difference')
+    cbar.set_label('Velocity magnitude (normalized)')
     plt.tight_layout()
 
     # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))

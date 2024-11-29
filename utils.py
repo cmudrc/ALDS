@@ -60,7 +60,7 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     # cover a colored mask on the prediction indicating the partition
     window_size_x, window_size_y = y_pred.shape[2], y_pred.shape[1]
     xx, yy = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y))
-    fig, axs = plt.subplots(3, 1, figsize=(20*window_size_x/window_size_y, 3*20))
+    fig, axs = plt.subplots(3, 1, figsize=(5*window_size_x/window_size_y, 3*5))
 
     colormap = plt.cm.tab20
 

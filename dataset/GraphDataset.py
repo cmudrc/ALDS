@@ -436,7 +436,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
             os.makedirs(os.path.join(self.root, 'partition'), exist_ok=True)
             if mode == 'train':
                 data = data[0]
-                subdomains = self._get_partition_domain(data, self.sub_size)
+                subdomains = self._get_partition_domain(data, self.sub_size)[0]
                 torch.save(subdomains, os.path.join(self.root, 'partition', 'data.pt'))
             else:
                 return data   
@@ -456,15 +456,15 @@ class DuctAnalysisDataset(GenericGraphDataset):
         z_min, z_max = data.pos[:, 2].min(), data.pos[:, 2].max()
         # temporary fix to the device issue
         # data.edge_index = torch.Tensor(data.edge_index)
-        print('x range: ', x_min, x_max)
-        print('y range: ', y_min, y_max)
-        print('z range: ', z_min, z_max)
-        print('sub_size: ', sub_size)
+        # print('x range: ', x_min, x_max)
+        # print('y range: ', y_min, y_max)
+        # print('z range: ', z_min, z_max)
+        # print('sub_size: ', sub_size)
 
         # divide the domain into subdomains according to self.sub_size
-        for x in np.linspace(x_min, x_max, int((x_max - x_min) / sub_size)):
-            for y in np.linspace(y_min, y_max, int((y_max - y_min) / sub_size)):
-                for z in np.linspace(z_min, z_max, int((z_max - z_min) / sub_size)):
+        for x in np.arange(x_min, x_max, sub_size):
+            for y in np.arange(y_min, y_max, sub_size):
+                for z in np.arange(z_min, z_max, sub_size):
                     # find nodes within the subdomain
                     mask = (data.pos[:, 0] >= x) & (data.pos[:, 0] < x + sub_size) & \
                         (data.pos[:, 1] >= y) & (data.pos[:, 1] < y + sub_size) & \
@@ -502,5 +502,6 @@ class DuctAnalysisDataset(GenericGraphDataset):
                     ####################################################################################
                     subdomain = Data(x=data.x[mask], pos=data.pos[mask], y=data.y[mask], edge_index=subdomain)
                     subdomains.append(subdomain)
+                    # print('subdomain created')
 
         return subdomains

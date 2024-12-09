@@ -7,6 +7,7 @@ from models.model import *
 from models.scheduler import *
 # from deepxde.nn.pytorch import DeepONet
 from dataset.MatDataset import *
+from dataset.GraphDataset import *
 import yaml
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -145,12 +146,13 @@ def init_model(type, in_channels, out_channels, **kwargs):
     if type == 'fno':
         return FNO2d(in_channels, out_channels, **kwargs)
     elif type == 'teecnet':
-        return TEECNetConv(in_channels, out_channels, **kwargs)
+        return TEECNet(in_channels, out_channels=out_channels, **kwargs)
     elif type == 'beno':
         return HeteroGNS(in_channels, out_channels, **kwargs)
     elif type == 'deeponet':
-        return adaptDeepONet(in_channels, kwargs['trunk_size'], activation=kwargs['activation'], \
-                        kernel_initializer=kwargs['kernel_initializer'], num_outputs=out_channels)
+        # return DeepONet(in_channels, kwargs['trunk_size'], activation=kwargs['activation'], \
+        #                 kernel_initializer=kwargs['kernel_initializer'], num_outputs=out_channels)
+        return DeepONet(in_channels, kwargs['trunk_size'], hidden_dim=kwargs['width'], output_dim=out_channels)
     else:
         raise ValueError(f'Invalid model type: {type}')
     
@@ -164,6 +166,8 @@ def init_dataset(name, **kwargs):
         return JHTDB_RECTANGULAR_BOUNDARY(**kwargs)
     elif name == 'jhtdb_bc':
         return JHTDB_BOUNDARY(**kwargs)
+    elif name == 'duct':
+        return DuctAnalysisDataset(**kwargs)
     else:
         raise ValueError(f'Invalid dataset name: {name}')
     
@@ -225,3 +229,33 @@ def compute_tke_spectrum(u, lx, ly):
     # plt.loglog(wave_numbers[1:], tke_spectrum[1:])
     # plt.savefig('tke_spectrum.png')
     return tke_spectrum[1:], wave_numbers[1:]
+
+def plot_prediction_3d(y, y_pred, save_mode='wandb', **kwargs):
+    window_size_x, window_size_y, window_size_z = y_pred.shape[3], y_pred.shape[2], y_pred.shape[1]
+    xx, yy, zz = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y), np.linspace(0, 1, window_size_z))
+    fig, axs = plt.subplots(3, 1, figsize=(5*window_size_x/window_size_y, 3*5))
+    axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
+    axs[0].set_title('(a) Ground truth')
+    axs[0].axis('off')
+    axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
+    axs[1].set_title('(b) Prediction')
+    axs[1].axis('off')
+    axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size_y, window_size_x) - y_pred.cpu().reshape(window_size_y, window_size_x)) / y.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
+    axs[2].set_title('(c) Absolute difference by percentage')
+    axs[2].axis('off')
+    # add colorbar and labels to the rightmost plot
+    cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
+    cbar.set_label('Velocity magnitude (normalized)')
+    plt.tight_layout()
+
+    # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
+    if save_mode == 'wandb':
+        wandb.log({'prediction': wandb.Image(plt)})
+    elif save_mode == 'plt':
+        plt.show()
+    elif save_mode == 'save':
+        os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
+        plt.savefig(kwargs['path'] +'.pdf', format='pdf', dpi=300)
+    elif save_mode == 'save_png':
+        os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
+        plt.savefig(kwargs['path'] +'.png', format='png', dpi=300)

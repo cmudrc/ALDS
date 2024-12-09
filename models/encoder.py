@@ -98,16 +98,17 @@ class PCAEncoder(Encoder):
         self.model = PCA(n_components=n_components)
 
     def train(self, dataset, save_model=False, path=None):
+        # print(type(dataset[0]))
         # split training data by graph and matrix format and call the appropriate training function
         # if dataset is a torch dataset, send to _train_matrix, if dataset is a torch_geometric InMemoryDataset, send to _train_graph
-        if type(dataset[0]) == tuple:
+        if type(dataset[0][0]) == list:
             self._train_matrix(dataset, save_model, path)
         else:
             self._train_graph(dataset, save_model, path)
 
     def _train_graph(self, dataset, save_model=False, path=None):
         data_space = []
-        for data in dataset:
+        for data in dataset[0]:
             x = data.x.cpu().detach().numpy()
             data_space.append(x.reshape(-1))
         self.model.fit(np.array(data_space))

@@ -85,10 +85,10 @@ class PartitionScheduler():
             subsets = self.subsets
         for i, subset in enumerate(subsets):
             wandb.init(project='domain_partition_scheduler', group='partition_training', config=train_config)
-            generator = torch.Generator(device='cuda')
-            train_dataset, val_dataset = random_split(subset, [int(0.8 * len(subset)), len(subset) - int(0.8 * len(subset))], generator=generator)
-            train_loader = DataLoader(train_dataset, batch_size=train_config['batch_size'], shuffle=True, generator=generator)
-            val_loader = DataLoader(val_dataset, batch_size=train_config['batch_size'], shuffle=False, generator=generator)
+            # generator = torch.Generator(device='cuda')
+            train_dataset, val_dataset = random_split(subset, [int(0.8 * len(subset)), len(subset) - int(0.8 * len(subset))])
+            train_loader = DataLoader(train_dataset, batch_size=train_config['batch_size'], shuffle=True)
+            val_loader = DataLoader(val_dataset, batch_size=train_config['batch_size'], shuffle=False)
             model = self._initialize_model(self.model, 8, 8, width=64)
             if is_parallel:
                 model = nn.DataParallel(model)

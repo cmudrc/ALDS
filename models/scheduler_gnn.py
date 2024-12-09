@@ -2,10 +2,11 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import random_split
 import torch.nn as nn
 import torch_geometric as pyg
 import torch_geometric.nn as pyg_nn    
+from torch_geometric.data import DataLoader
 from torch_geometric.nn.inits import reset, uniform
 import torch.nn.functional as F
 from joblib import dump, load
@@ -44,6 +45,9 @@ class GNNPartitionScheduler():
         return models
     
     def _train_partitions(self, num_partitions, train):
+        # if num_partitions == 1: skip the clustering and directly train the model
+        if num_partitions == 1:
+            return [self.dataset]
         if train:
             os.makedirs('logs/models/collection_{}'.format(self.name), exist_ok=True)
             # train the encoder on the dataset
@@ -103,7 +107,7 @@ class GNNPartitionScheduler():
                 for batch in train_loader:
                     optimizer.zero_grad()
                     batch = batch.to(device)
-                    out = model(batch)
+                    out = model(batch.x, batch.edge_index, batch.edge_attr)
                     loss = criterion(out, batch.y)
                     loss.backward()
                     optimizer.step()

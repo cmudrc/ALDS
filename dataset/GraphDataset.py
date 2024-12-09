@@ -12,9 +12,9 @@ import torch_geometric as pyg
 from torch_geometric.data import Data, InMemoryDataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils import subgraph
-from fenics import *
-from dolfin import *
-from fenicstools.Interpolation import interpolate_nonmatching_mesh
+# from fenics import *
+# from dolfin import *
+# from fenicstools.Interpolation import interpolate_nonmatching_mesh
 from scipy.spatial import Delaunay
 
 
@@ -30,10 +30,12 @@ class GenericGraphDataset(InMemoryDataset):
             print('Processing data...')
             self.process()
 
-        self.data = torch.load(self.processed_paths[0])
+        data = torch.load(self.processed_paths[0])
         if partition:
             self.sub_size = kwargs['sub_size']
-            self.data = self.get_partition_domain(self.data, 'train')
+            self.data = self.get_partition_domain(data, 'train')
+        else:
+            self.data = data
 
     @property
     def raw_file_names(self):
@@ -294,6 +296,12 @@ class DuctAnalysisDataset(GenericGraphDataset):
     def download(self):
         pass
 
+    def len(self):
+        return len(self.data)
+    
+    def get(self, idx):
+        return self.data[idx]
+
     @property
     def raw_file_names(self):
         return ["Mesh_Output_High.msh", "Mesh_Output_Med.msh", "Mesh_Output_Low.msh", "Output_Summary_High_100", "Output_Summary_Med_100", "Output_Summary_Low_100", "Output_Summary_High_25", "Output_Summary_Med_25", "Output_Summary_Low_25"]
@@ -321,6 +329,9 @@ class DuctAnalysisDataset(GenericGraphDataset):
             pos = torch.tensor(mesh.points, dtype=torch.float)
             cells = [mesh.cells_dict['quad'], mesh.cells_dict['triangle']]
             edge_index = DuctAnalysisDataset._cell_to_connectivity(cells)
+
+            # edge attr is the length of the edge
+            # edge_attr = torch.norm(pos[edge_index[0]] - pos[edge_index[1]], dim=1).unsqueeze(1)
             
             # process physics files
             # print(path_list[idx+3])
@@ -331,6 +342,9 @@ class DuctAnalysisDataset(GenericGraphDataset):
             velocity_z = torch.tensor(physics['      z-velocity'], dtype=torch.float).unsqueeze(1)
             velocity = torch.cat([velocity_x, velocity_y, velocity_z], dim=1)
             pressure = torch.tensor(physics['        pressure'], dtype=torch.float).unsqueeze(1)
+            # check if nan exists in the physics data
+            if torch.isnan(velocity).sum() > 0 or torch.isnan(pressure).sum() > 0:
+                print('nan exists in original physics data')
 
             # identify mesh wall nodes as nodes that satisfy the following conditions:
             # 1. part of triangle cells
@@ -355,8 +369,13 @@ class DuctAnalysisDataset(GenericGraphDataset):
                 velocity_y_high = DuctAnalysisDataset._lagrangian_interpolation(pos_low, velocity_y, pos_high)
                 velocity_z_high = DuctAnalysisDataset._lagrangian_interpolation(pos_low, velocity_z, pos_high)
                 pressure_high = DuctAnalysisDataset._lagrangian_interpolation(pos_low, pressure, pos_high)
+
                 velocity_high = torch.cat([velocity_x_high, velocity_y_high, velocity_z_high], dim=1)
+                velocity_high = torch.tensor(velocity_high, dtype=torch.float)
                 pressure_high = torch.tensor(pressure_high, dtype=torch.float)
+                # check if nan exists in the interpolated physics data
+                if torch.isnan(velocity_high).sum() > 0 or torch.isnan(pressure_high).sum() > 0:
+                    print('nan exists in interpolated physics data')
 
                 data_list[0].x = torch.cat([velocity_high, pressure_high], dim=1)
 
@@ -413,7 +432,8 @@ class DuctAnalysisDataset(GenericGraphDataset):
         # Efficient computation of barycentric coordinates
         for i, simplex in enumerate(simplex_indices):
             if simplex == -1:  # Point outside convex hull
-                interpolated_physics[i] = np.nan
+                # interpolated_physics[i] = np.nan
+                interpolated_physics[i] = 0
                 continue
 
             # Get the transform for the simplex
@@ -425,6 +445,9 @@ class DuctAnalysisDataset(GenericGraphDataset):
             # Interpolate physics
             vertices = delaunay.simplices[simplex]
             interpolated_physics[i] = np.sum(physics[vertices].flatten() * barycentric_coords)
+            # check if nan in the interpolated physics
+            # if np.isnan(interpolated_physics[i]):
+            #     print('nan exists in interpolated physics')
 
         return torch.tensor(interpolated_physics)
     
@@ -436,7 +459,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
             os.makedirs(os.path.join(self.root, 'partition'), exist_ok=True)
             if mode == 'train':
                 data = data[0]
-                subdomains = self._get_partition_domain(data, self.sub_size)[0]
+                subdomains = self._get_partition_domain(data, self.sub_size)
                 torch.save(subdomains, os.path.join(self.root, 'partition', 'data.pt'))
             else:
                 return data   
@@ -456,11 +479,11 @@ class DuctAnalysisDataset(GenericGraphDataset):
         z_min, z_max = data.pos[:, 2].min(), data.pos[:, 2].max()
         # temporary fix to the device issue
         # data.edge_index = torch.Tensor(data.edge_index)
-        # print('x range: ', x_min, x_max)
-        # print('y range: ', y_min, y_max)
-        # print('z range: ', z_min, z_max)
-        # print('sub_size: ', sub_size)
-
+        print('x range: ', x_min, x_max)
+        print('y range: ', y_min, y_max)
+        print('z range: ', z_min, z_max)
+        print('sub_size: ', sub_size)
+        # subdomain_count = 0
         # divide the domain into subdomains according to self.sub_size
         for x in np.arange(x_min, x_max, sub_size):
             for y in np.arange(y_min, y_max, sub_size):
@@ -469,7 +492,10 @@ class DuctAnalysisDataset(GenericGraphDataset):
                     mask = (data.pos[:, 0] >= x) & (data.pos[:, 0] < x + sub_size) & \
                         (data.pos[:, 1] >= y) & (data.pos[:, 1] < y + sub_size) & \
                         (data.pos[:, 2] >= z) & (data.pos[:, 2] < z + sub_size)
-                    subdomain, _ = subgraph(mask, data.edge_index)
+                    if mask.unique().size(0) == 1:
+                        continue
+                    else:
+                        subdomain, _ = subgraph(mask, data.edge_index)
 
                     ########################## TBD: fix boundary information ##########################
                     '''
@@ -500,8 +526,17 @@ class DuctAnalysisDataset(GenericGraphDataset):
                     subdomain.bc = boundary_info
                     '''
                     ####################################################################################
-                    subdomain = Data(x=data.x[mask], pos=data.pos[mask], y=data.y[mask], edge_index=subdomain)
+                    # check if nan exists in the subdomain
+                    if torch.isnan(data.x[mask]).sum() > 0:
+                        print('nan exists')
+                        continue
+
+                    edge_attr = torch.norm(data.pos[subdomain[0]] - data.pos[subdomain[1]], dim=1).unsqueeze(1)
+                    subdomain = Data(x=data.x[mask], pos=data.pos[mask], y=data.y[mask], edge_index=subdomain, edge_attr=edge_attr)
                     subdomains.append(subdomain)
                     # print('subdomain created')
+                    # subdomain_count += 1
+
+        print('subdomain count: ', len(subdomains))
 
         return subdomains

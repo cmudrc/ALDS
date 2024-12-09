@@ -9,9 +9,10 @@ domain_size: 0.1963495
 # classifier configs
 
 # model configs
-in_channels: [3, 128, 128, 128]
-out_channels: 196
-trunk_size: [2, 128, 128, 128]
+in_channels: 3
+out_channels: 1
+trunk_size: 2
+width: 64
 activation: 'tanh'
 kernel_initializer: 'Glorot normal'
 

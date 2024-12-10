@@ -8,9 +8,10 @@ import pandas as pd
 import multiprocessing as mp
 from threading import Thread
 import scipy.sparse as sp
+from operator import itemgetter
 import torch_geometric as pyg
 from torch_geometric.data import Data, InMemoryDataset
-from torch_geometric.loader import DataLoader
+# from torch_geometric.loader import DataLoader
 from torch_geometric.utils import subgraph
 # from fenics import *
 # from dolfin import *
@@ -483,6 +484,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
         print('y range: ', y_min, y_max)
         print('z range: ', z_min, z_max)
         print('sub_size: ', sub_size)
+
         # subdomain_count = 0
         # divide the domain into subdomains according to self.sub_size
         for x in np.arange(x_min, x_max, sub_size):
@@ -532,7 +534,13 @@ class DuctAnalysisDataset(GenericGraphDataset):
                         continue
 
                     edge_attr = torch.norm(data.pos[subdomain[0]] - data.pos[subdomain[1]], dim=1).unsqueeze(1)
-                    subdomain = Data(x=data.x[mask], pos=data.pos[mask], y=data.y[mask], edge_index=subdomain, edge_attr=edge_attr)
+                    # reorganize edge index to be start from 0
+                    unique_nodes = torch.unique(subdomain)
+                    node_map = dict(zip(unique_nodes.numpy(), range(unique_nodes.size(0))))
+                    edge_index = torch.tensor([[node_map[edge[0].item()] for edge in subdomain.t()], [node_map[edge[1].item()] for edge in subdomain.t()]], dtype=torch.long)
+                    edge_index = edge_index.view(2, -1)
+                    subdomain = Data(x=data.x[mask], pos=data.pos[mask], y=data.y[mask], edge_index=edge_index, edge_attr=edge_attr, global_node_id=unique_nodes)
+                    # subdomain = Data(x=data.x[mask], pos=data.pos[mask], y=data.y[mask], edge_index=subdomain, edge_attr=edge_attr)
                     subdomains.append(subdomain)
                     # print('subdomain created')
                     # subdomain_count += 1
@@ -540,3 +548,51 @@ class DuctAnalysisDataset(GenericGraphDataset):
         print('subdomain count: ', len(subdomains))
 
         return subdomains
+
+    # @staticmethod
+    # def _get_partiton_domain(data, sub_size=0.001):
+    #     # vectorized implementation of the previous function
+    #     subdomains = []
+    #     # get domain geometry bounds
+    #     x_min, x_max = data.pos[:, 0].min(), data.pos[:, 0].max()
+    #     y_min, y_max = data.pos[:, 1].min(), data.pos[:, 1].max()
+    #     z_min, z_max = data.pos[:, 2].min(), data.pos[:, 2].max()
+    #     # temporary fix to the device issue
+    #     # data.edge_index = torch.Tensor(data.edge_index)
+    #     print('x range: ', x_min, x_max)
+    #     print('y range: ', y_min, y_max)
+    #     print('z range: ', z_min, z_max)
+    #     print('sub_size: ', sub_size)
+
+    #     x_coords = torch.arange(x_min, x_max, sub_size)
+    #     y_coords = torch.arange(y_min, y_max, sub_size)
+    #     z_coords = torch.arange(z_min, z_max, sub_size)
+    #     grid = torch.meshgrid(x_coords, y_coords, z_coords).T.reshape(-1, 3)
+
+    #     # find nodes within the subdomain
+    #     for x, y, z in grid:
+    #         mask = (data.pos[:, 0] >= x) & (data.pos[:, 0] < x + sub_size) & \
+    #             (data.pos[:, 1] >= y) & (data.pos[:, 1] < y + sub_size) & \
+    #             (data.pos[:, 2] >= z) & (data.pos[:, 2] < z + sub_size)
+    #         if mask.unique().size(0) == 1:
+    #             continue
+    #         else:
+    #             subdomain, _ = subgraph(mask, data.edge_index)
+
+    #         # check if nan exists in the subdomain
+    #         if torch.isnan(data.x[mask]).sum() > 0:
+    #             print('nan exists')
+    #             continue
+
+    #         edge_attr = torch.norm(data.pos[subdomain[0]] - data.pos[subdomain[1]], dim=1).unsqueeze(1)
+    #         # reorganize edge index to be start from 0
+    #         unique_nodes = torch.unique(subdomain)
+    #         node_map = dict(zip(unique_nodes.numpy(), range(unique_nodes.size(0))))
+    #         edge_index = torch.tensor([[node_map[edge[0].item()] for edge in subdomain.t()], [node_map[edge[1].item()] for edge in subdomain.t()]], dtype=torch.long)
+    #         edge_index = edge_index.view(2, -1)
+    #         subdomain = Data(x=data.x[mask], pos=data.pos[mask], y=data.y[mask], edge_index=edge_index, edge_attr=edge_attr, global_node_id=unique_nodes)
+    #         subdomains.append(subdomain)
+
+    #     print('subdomain count: ', len(subdomains))
+
+    #     return subdomains

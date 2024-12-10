@@ -665,7 +665,7 @@ class TEECNet(torch.nn.Module):
         self.num_layers = num_layers
 
         self.fc1 = nn.Linear(in_channels, width)
-        self.kernel = KernelConv(width, width, kernel=PowerSeriesKernel, in_edge=1, num_layers=5, **kwargs)
+        self.kernel = KernelConv(width, width, kernel=PowerSeriesKernel, in_edge=1, num_layers=3, **kwargs)
         # self.kernel_out = KernelConv(width, out_channels, kernel=PowerSeriesKernel, in_edge=5, num_layers=2, **kwargs)
         self.fc_out = nn.Linear(width, out_channels)
 
@@ -803,7 +803,7 @@ class KernelConv(pyg_nn.MessagePassing):
 
         self.linear = nn.Linear(in_channel, out_channel)
         self.kernel = kernel(in_channel=in_edge, out_channel=out_channel**2, num_layers=num_layers, **kwargs)
-        self.operator_kernel = DenseNet([in_edge, 64, 128, out_channel**2], nn.ReLU)
+        self.operator_kernel = DenseNet([in_edge, 64, 64, out_channel**2], nn.ReLU)
         if kwargs['retrieve_weight']:
             self.retrieve_weights = True
             self.weight_k = None

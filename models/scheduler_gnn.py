@@ -6,7 +6,7 @@ from torch.utils.data import random_split
 import torch.nn as nn
 import torch_geometric as pyg
 import torch_geometric.nn as pyg_nn    
-from torch_geometric.data import DataLoader
+from torch_geometric.loader import DataLoader
 from torch_geometric.nn.inits import reset, uniform
 import torch.nn.functional as F
 from joblib import dump, load
@@ -142,8 +142,11 @@ class GNNPartitionScheduler():
         if torch.cuda.device_count() > 1:
             print(f'Using {torch.cuda.device_count()} GPUs')
             self._train_sub_models(train_config, torch.device('cuda'), subset_idx, is_parallel=True)
-        else:
+        elif torch.cuda.device_count() == 1:
             print('Using single GPU')
             self._train_sub_models(train_config, torch.device('cuda'), subset_idx, is_parallel=False)
+        else:
+            print('Using CPU')
+            self._train_sub_models(train_config, torch.device('cpu'), subset_idx, is_parallel=False)
 
                  

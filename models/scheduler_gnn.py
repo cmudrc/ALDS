@@ -122,7 +122,7 @@ class GNNPartitionScheduler():
                     with torch.no_grad():
                         for batch in val_loader:
                             batch = batch.to(device)
-                            out = model(batch)
+                            out = model(batch.x, batch.edge_index, batch.edge_attr)
                             loss = criterion(out, batch.y)
                             val_loss += loss.item()
                         val_loss /= len(val_loader)

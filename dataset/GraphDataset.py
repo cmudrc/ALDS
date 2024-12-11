@@ -5,8 +5,9 @@ import torch
 import numpy as np
 import meshio
 import pandas as pd
-import multiprocessing as mp
-from threading import Thread
+# import multiprocessing as mp
+from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
+# from threading import Thread
 import scipy.sparse as sp
 from operator import itemgetter
 import torch_geometric as pyg
@@ -599,12 +600,13 @@ class DuctAnalysisDataset(GenericGraphDataset):
         # print('subdomain count: ', len(subdomains))
         
         # parallelize the process
-        num_processes = mp.cpu_count()
-        # len_single_process = max(len(grid) // (num_processes - 1), 1)
-        # grid_list = [grid[i:i + len_single_process] for i in range(0, len(grid), len_single_process)]
-        with mp.Pool(num_processes) as pool:
-            subdomains = pool.starmap(self.get_subdomain, [(data, sub_size, x, y, z) for x, y, z in grid])
-        subdomains = [subdomain for subdomain in subdomains if subdomain is not None]
+        with ThreadPoolExecutor() as executor:
+            futures = [executor.submit(DuctAnalysisDataset.get_subdomain, data, sub_size, x, y, z) for x, y, z in grid]
+            wait(futures, return_when=ALL_COMPLETED)
+            for future in futures:
+                subdomain = future.result()
+                if subdomain is not None:
+                    subdomains.append(subdomain)
 
         return subdomains
     

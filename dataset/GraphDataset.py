@@ -550,7 +550,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
     #     return subdomains
 
     @staticmethod
-    def _get_partiton_domain(data, sub_size=0.001):
+    def _get_partition_domain(data, sub_size=0.001):
         # vectorized implementation of the previous function
         subdomains = []
         # get domain geometry bounds

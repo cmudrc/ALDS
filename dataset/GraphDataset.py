@@ -600,10 +600,10 @@ class DuctAnalysisDataset(GenericGraphDataset):
         
         # parallelize the process
         num_processes = mp.cpu_count()
-        len_single_process = max(len(grid) // (num_processes - 1), 1)
-        grid_list = [grid[i:i + len_single_process] for i in range(0, len(grid), len_single_process)]
+        # len_single_process = max(len(grid) // (num_processes - 1), 1)
+        # grid_list = [grid[i:i + len_single_process] for i in range(0, len(grid), len_single_process)]
         with mp.Pool(num_processes) as pool:
-            subdomains = pool.starmap(self.get_subdomain, [(data, sub_size, x, y, z) for x, y, z in grid_list[0]])
+            subdomains = pool.starmap(self.get_subdomain, [(data, sub_size, x, y, z) for x, y, z in grid])
         subdomains = [subdomain for subdomain in subdomains if subdomain is not None]
 
         return subdomains

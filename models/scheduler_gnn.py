@@ -129,6 +129,7 @@ class GNNPartitionScheduler():
                         wandb.log({'val_loss': val_loss})
                         if val_loss < best_loss:
                             best_loss = val_loss
+                            os.makedirs('logs/models/collection_{}'.format(self.name), exist_ok=True)
                             torch.save(model.state_dict(), 'logs/models/collection_{}/partition_{}.pth'.format(self.name, i))
                             print(f'Epoch {epoch}: Validation loss: {val_loss}')
                 scheduler.step()

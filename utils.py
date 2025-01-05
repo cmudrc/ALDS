@@ -8,9 +8,11 @@ from models.scheduler import *
 # from deepxde.nn.pytorch import DeepONet
 from dataset.MatDataset import *
 from dataset.GraphDataset import *
+from torch_geometric.data import Data
 import yaml
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+from matplotlib.tri import Triangulation
 import wandb
 from numba import jit
 
@@ -170,7 +172,35 @@ def init_dataset(name, **kwargs):
         return DuctAnalysisDataset(**kwargs)
     else:
         raise ValueError(f'Invalid dataset name: {name}')
-    
+
+
+def plot_3d_prediction(data, y_pred, save_mode='wandb', **kwargs):
+    position = data.pos.cpu().detach().numpy()
+    # projection 3d
+    fig, axs = plt.subplots(3, 1, projection='3d', figsize=(40, 15))
+    axs[0].scatter(position[:, 0], position[:, 1], position[:, 2], c=y_pred.cpu().detach().numpy(), cmap='plasma')
+    axs[0].quiver(position[:, 0], position[:, 1], position[:, 2], y_pred[:, 0].cpu().detach().numpy(), y_pred[:, 1].cpu().detach().numpy(), y_pred[:, 2].cpu().detach().numpy(), length=0.1, normalize=True)
+    axs[0].set_title('Prediction')
+    axs[0].axis('off')
+
+    axs[1].scatter(position[:, 0], position[:, 1], position[:, 2], c=data.y.cpu().detach().numpy(), cmap='plasma')
+    axs[1].quiver(position[:, 0], position[:, 1], position[:, 2], data.y[:, 0].cpu().detach().numpy(), data.y[:, 1].cpu().detach().numpy(), data.y[:, 2].cpu().detach().numpy(), length=0.1, normalize=True)
+    axs[1].set_title('Ground truth')
+    axs[1].axis('off')
+
+    axs[2].scatter(position[:, 0], position[:, 1], position[:, 2], c=np.abs(data.y.cpu().detach().numpy() - y_pred.cpu().detach().numpy()), cmap='plasma')
+    axs[2].quiver(position[:, 0], position[:, 1], position[:, 2], data.y[:, 0].cpu().detach().numpy() - y_pred[:, 0].cpu().detach().numpy(), data.y[:, 1].cpu().detach().numpy() - y_pred[:, 1].cpu().detach().numpy(), data.y[:, 2].cpu().detach().numpy() - y_pred[:, 2].cpu().detach().numpy(), length=0.1, normalize=True)
+    axs[2].set_title('Absolute difference')
+    axs[2].axis('off')
+
+    if save_mode == 'wandb':
+        wandb.log({'prediction': wandb.Image(plt)})
+    elif save_mode == 'plt':
+        plt.show()
+    elif save_mode == 'save':
+        os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
+        plt.savefig(kwargs['path'] +'.pdf', format='pdf', dpi=300)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run ALDS experiment')
@@ -230,25 +260,17 @@ def compute_tke_spectrum(u, lx, ly):
     # plt.savefig('tke_spectrum.png')
     return tke_spectrum[1:], wave_numbers[1:]
 
-def plot_prediction_3d(y, y_pred, save_mode='wandb', **kwargs):
-    window_size_x, window_size_y, window_size_z = y_pred.shape[3], y_pred.shape[2], y_pred.shape[1]
-    xx, yy, zz = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y), np.linspace(0, 1, window_size_z))
-    fig, axs = plt.subplots(3, 1, figsize=(5*window_size_x/window_size_y, 3*5))
-    axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
-    axs[0].set_title('(a) Ground truth')
-    axs[0].axis('off')
-    axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
-    axs[1].set_title('(b) Prediction')
-    axs[1].axis('off')
-    axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size_y, window_size_x) - y_pred.cpu().reshape(window_size_y, window_size_x)) / y.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
-    axs[2].set_title('(c) Absolute difference by percentage')
-    axs[2].axis('off')
-    # add colorbar and labels to the rightmost plot
-    cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
-    cbar.set_label('Velocity magnitude (normalized)')
-    plt.tight_layout()
+def plot_3d_partition(data, y_pred, labels, save_mode='wandb', **kwargs):
+    position = data.pos.cpu().detach().numpy()
+    # projection 3d
+    fig, axs = plt.subplots(3, 1, projection='3d', figsize=(40, 15))
+    colormap = plt.cm.tab20
+    for i in range(len(np.unique(labels))):
+        mask = labels == i
+        axs[0].scatter(position[mask, 0], position[mask, 1], position[mask, 2], c=y_pred[mask].cpu().detach().numpy(), cmap='plasma')
+        axs[1].scatter(position[mask, 0], position[mask, 1], position[mask, 2], c=data.y[mask].cpu().detach().numpy(), cmap='plasma')
+        axs[2].scatter(position[mask, 0], position[mask, 1], position[mask, 2], c=np.abs(data.y[mask].cpu().detach().numpy() - y_pred[mask].cpu().detach().numpy()), cmap='plasma')
 
-    # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
     if save_mode == 'wandb':
         wandb.log({'prediction': wandb.Image(plt)})
     elif save_mode == 'plt':
@@ -256,6 +278,3 @@ def plot_prediction_3d(y, y_pred, save_mode='wandb', **kwargs):
     elif save_mode == 'save':
         os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
         plt.savefig(kwargs['path'] +'.pdf', format='pdf', dpi=300)
-    elif save_mode == 'save_png':
-        os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
-        plt.savefig(kwargs['path'] +'.png', format='png', dpi=300)

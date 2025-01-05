@@ -13,16 +13,13 @@ def train_graph_ALDD(exp_name, encoder, classifier, model, dataset, num_partitio
 def pred_graph_ALDD(idxs, exp_name, encoder, classifier, model, dataset, num_partitions, save_mode, **kwargs):
     scheduler = GNNPartitionScheduler(exp_name, num_partitions, dataset, encoder, classifier, model, train=False)
     for idx in idxs:
-        x, sub_x_list, sub_y_list = dataset.get_one_full_sample(idx)
-        sub_x_tensor = torch.stack(sub_x_list)
-        pred_y_list, labels = scheduler.predict(sub_x_tensor)
+        x = dataset.get_one_full_sample(idx)
+        pred_y_list = scheduler.predict(x)
         
-        pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
-        sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
+        pred_y = dataset.reconstruct_from_partitions(pred_y_list)
+        sub_y = dataset.reconstruct_from_partitions(x)
 
-        plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/timestep_{idx}')
-        
-        plot_partition(sub_y, pred_y, labels, kwargs['sub_size']+2, save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_timestep_{idx}')
+        plot_3d_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/timestep_{idx}')
 
         r2_scores = r2_score(sub_y.flatten().cpu().detach().numpy(), pred_y.flatten().cpu().detach().numpy())
         # save the prediction

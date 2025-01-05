@@ -5,7 +5,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 from joblib import dump, load
-from multiprocessing import Pool
+# from multiprocessing import Pool
+from concurrent.futures import ThreadPoolExecutor
 from time import time
 
 
@@ -316,13 +317,13 @@ class SpectrumEncoder(Encoder):
 
     def get_latent_space(self, dataset):
         # determine if the dataset is a torch matrix dataset or a torch_geometric dataset
-        if type(dataset[0]) == tuple:
+        if type(dataset[0][0]) == list:
             try:
                 dataset = [[data[0][0][:, :, 0], self.domain_size, self.domain_size] for data in dataset]
             except:
                 dataset = [[data[0], self.domain_size, self.domain_size] for data in dataset]
-            with Pool() as p:
-                latent_space = p.map(self._compute_tke_spectrum, dataset)
+            with ThreadPoolExecutor() as executor:
+                latent_space = executor.map(self._compute_tke_spectrum, dataset)
         else:
             latent_space = []
             for data in dataset:
@@ -342,8 +343,8 @@ class SpectrumEncoder(Encoder):
             # domain_size_list = [self.domain_size for _ in range(len(x))]
             # time_sep = time()
             # print(f'Time to separate data: {time_sep - time_start}')
-            with Pool() as p:
-                latent_space = p.map(self._compute_tke_spectrum, x)
+            with ThreadPoolExecutor() as executor:
+                latent_space = executor.map(self._compute_tke_spectrum, x)
                 # latent_space = p.starmap(self._compute_tke_spectrum, zip(x, domain_size_list, domain_size_list))
             # time_end = time()
             # print(f'Time to compute latent space: {time_end - time_sep}')

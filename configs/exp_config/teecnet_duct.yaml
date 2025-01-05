@@ -22,7 +22,7 @@ retrieve_weight: False
 # data configs
 root: 'data/Duct'
 partition: True
-sub_size: 0.004
+sub_size: 0.01
 
 # pred configs
 idxs: [1, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390]

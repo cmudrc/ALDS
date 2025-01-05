@@ -32,7 +32,7 @@ class GenericGraphDataset(InMemoryDataset):
             print('Processing data...')
             self.process()
 
-        data = torch.load(self.processed_paths[0])
+        data = torch.load(self.processed_paths[0], map_location=torch.device('cpu'))
         if partition:
             self.sub_size = kwargs['sub_size']
             self.data = self.get_partition_domain(data, 'train')
@@ -343,7 +343,12 @@ class DuctAnalysisDataset(GenericGraphDataset):
             velocity_y = torch.tensor(physics['      y-velocity'], dtype=torch.float).unsqueeze(1)
             velocity_z = torch.tensor(physics['      z-velocity'], dtype=torch.float).unsqueeze(1)
             velocity = torch.cat([velocity_x, velocity_y, velocity_z], dim=1)
+            # normalize the velocity to be in the range of [0, 1]
+            velocity = velocity / torch.max(velocity)
+
             pressure = torch.tensor(physics['        pressure'], dtype=torch.float).unsqueeze(1)
+            # normalize the pressure
+            pressure = pressure / torch.max(pressure)
             # check if nan exists in the physics data
             if torch.isnan(velocity).sum() > 0 or torch.isnan(pressure).sum() > 0:
                 print('nan exists in original physics data')
@@ -374,7 +379,11 @@ class DuctAnalysisDataset(GenericGraphDataset):
 
                 velocity_high = torch.cat([velocity_x_high, velocity_y_high, velocity_z_high], dim=1)
                 velocity_high = torch.tensor(velocity_high, dtype=torch.float)
+                # normalize the velocity
+                velocity_high = velocity_high / torch.max(velocity_high)
                 pressure_high = torch.tensor(pressure_high, dtype=torch.float)
+                # normalize the pressure
+                pressure_high = pressure_high / torch.max(pressure_high)
                 # check if nan exists in the interpolated physics data
                 if torch.isnan(velocity_high).sum() > 0 or torch.isnan(pressure_high).sum() > 0:
                     print('nan exists in interpolated physics data')
@@ -456,7 +465,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
     def get_partition_domain(self, data, mode):
         # because the current dataset only contains one data object, only perform partitioning on the first data object
         if os.path.exists(os.path.join(self.root, 'partition', 'data.pt')):
-            subdomains = torch.load(os.path.join(self.root, 'partition', 'data.pt'))
+            subdomains = torch.load(os.path.join(self.root, 'partition', 'data.pt'), map_location=torch.device('cpu'))
         else:
             os.makedirs(os.path.join(self.root, 'partition'), exist_ok=True)
             if mode == 'train':
@@ -633,3 +642,31 @@ class DuctAnalysisDataset(GenericGraphDataset):
         edge_index = edge_index.view(2, -1)
         subdomain = Data(x=data.x[mask], pos=data.pos[mask], y=data.y[mask], edge_index=edge_index, edge_attr=edge_attr, global_node_id=unique_nodes)
         return subdomain
+    
+    @staticmethod
+    def reconstruct_from_partition(subdomains):
+        """
+        reconstructs the original domain from a partitioned collection of subdomains
+        
+        :param subdomains: a list of subdomains, each stored in a torch_geometric.data.Data object
+        """
+        # concatenate all subdomains
+        data = Data()
+        # arrange data.x of subdomains according to the global node id
+        global_node_id = torch.cat([subdomain.global_node_id for subdomain in subdomains], dim=0)
+        global_node_id = global_node_id.unique()
+        global_node_id = global_node_id[global_node_id != -1]
+        # node_map = dict(zip(global_node_id.numpy(), range(global_node_id.size(0)))
+        x = torch.cat([subdomain.x for subdomain in subdomains], dim=0)
+        x = x[global_node_id]
+        # arrange data.y of subdomains according to the global node id
+        y = torch.cat([subdomain.y for subdomain in subdomains], dim=0)
+        y = y[global_node_id]
+        # arrange data.pos of subdomains according to the global node id
+        data.x = x
+        data.y = y
+
+        return data
+    
+    def get_one_full_sample(self, idx):
+        return self.data

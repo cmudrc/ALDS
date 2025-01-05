@@ -14,6 +14,7 @@ import wandb
 from dataset.MatDataset import Sub_JHTDB
 from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 from models.model import *
+from utils import *
 
 
 class GNNPartitionScheduler():
@@ -127,6 +128,7 @@ class GNNPartitionScheduler():
                             val_loss += loss.item()
                         val_loss /= len(val_loader)
                         wandb.log({'val_loss': val_loss})
+                        plot_3d_prediction(batch[0], out, save_mode='wandb', path='logs/figures/{}'.format(self.name))
                         if val_loss < best_loss:
                             best_loss = val_loss
                             os.makedirs('logs/models/collection_{}'.format(self.name), exist_ok=True)
@@ -150,4 +152,13 @@ class GNNPartitionScheduler():
             print('Using CPU')
             self._train_sub_models(train_config, torch.device('cpu'), subset_idx, is_parallel=False)
 
+    def predict(self, x):
+        pred_y_list = []
+        for model in self.models:
+            model.eval()
+            with torch.no_grad():
+                for i in range(len(x)):
+                    pred_y = model(x[i].x, x[i].edge_index, x[i].edge_attr)
+                    pred_y_list.append(pred_y)
+        return pred_y_list
                  

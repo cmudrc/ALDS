@@ -16,8 +16,8 @@ def pred_graph_ALDD(idxs, exp_name, encoder, classifier, model, dataset, num_par
         x = dataset.get_one_full_sample(idx)
         pred_y_list = scheduler.predict(x)
         
-        pred_y = dataset.reconstruct_from_partitions(pred_y_list)
-        sub_y = dataset.reconstruct_from_partitions(x)
+        pred_y = dataset.reconstruct_from_partition(pred_y_list)
+        sub_y = dataset.reconstruct_from_partition(x)
 
         plot_3d_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/timestep_{idx}')
 

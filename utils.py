@@ -180,13 +180,13 @@ def plot_3d_prediction(y_pred, save_mode='wandb', **kwargs):
     fig = plt.figure(figsize=(15, 5))
     ax0 = fig.add_subplot(131, projection='3d')
     ax0.scatter(position[:, 0], position[:, 1], position[:, 2], c=torch.norm(y_pred.x[:, :3], dim=1).cpu().detach().numpy(), cmap='plasma')
-    ax0.quiver(position[:, 0], position[:, 1], position[:, 2], y_pred.x[:, 0].cpu().detach().numpy(), y_pred.x[:, 1].cpu().detach().numpy(), y_pred.x[:, 2].cpu().detach().numpy(), length=torch.norm(y_pred.x[:, :3], dim=1).cpu().detach().numpy(), normalize=True)
+    # ax0.quiver(position[:, 0], position[:, 1], position[:, 2], y_pred.x[:, 0].cpu().detach().numpy(), y_pred.x[:, 1].cpu().detach().numpy(), y_pred.x[:, 2].cpu().detach().numpy(), length=torch.norm(y_pred.x[:, :3], dim=1).cpu().detach().numpy(), normalize=True)
     ax0.set_title('Prediction')
     ax0.axis('off')
 
     ax1 = fig.add_subplot(132, projection='3d')
     ax1.scatter(position[:, 0], position[:, 1], position[:, 2], c=torch.norm(y_pred.y[:, :3], dim=1).cpu().detach().numpy(), cmap='plasma')
-    ax1.quiver(position[:, 0], position[:, 1], position[:, 2], y_pred.y[:, 0].cpu().detach().numpy(), y_pred.y[:, 1].cpu().detach().numpy(), y_pred.y[:, 2].cpu().detach().numpy(), length=torch.norm(y_pred.y[:, :3], dim=1).cpu().detach().numpy(), normalize=True)
+    # ax1.quiver(position[:, 0], position[:, 1], position[:, 2], y_pred.y[:, 0].cpu().detach().numpy(), y_pred.y[:, 1].cpu().detach().numpy(), y_pred.y[:, 2].cpu().detach().numpy(), length=torch.norm(y_pred.y[:, :3], dim=1).cpu().detach().numpy(), normalize=True)
     ax1.set_title('Ground truth')
 
     # ax2 = fig.add_subplot(133, projection='3d')

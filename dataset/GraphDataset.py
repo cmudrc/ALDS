@@ -344,7 +344,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
             velocity_z = torch.tensor(physics['      z-velocity'], dtype=torch.float).unsqueeze(1)
             velocity = torch.cat([velocity_x, velocity_y, velocity_z], dim=1)
             # normalize the velocity to be in the range of [0, 1]
-            velocity = velocity / torch.max(velocity)
+            velocity = velocity / torch.max(torch.abs(velocity))
 
             pressure = torch.tensor(physics['        pressure'], dtype=torch.float).unsqueeze(1)
             # normalize the pressure
@@ -380,7 +380,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
                 velocity_high = torch.cat([velocity_x_high, velocity_y_high, velocity_z_high], dim=1)
                 velocity_high = torch.tensor(velocity_high, dtype=torch.float)
                 # normalize the velocity
-                velocity_high = velocity_high / torch.max(velocity_high)
+                velocity_high = velocity_high / torch.max(torch.abs(velocity_high))
                 pressure_high = torch.tensor(pressure_high, dtype=torch.float)
                 # normalize the pressure
                 pressure_high = pressure_high / torch.max(pressure_high)

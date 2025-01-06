@@ -1,18 +1,18 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-import torch
+# import torch
 from torch.utils.data import random_split
 import torch.nn as nn
-import torch_geometric as pyg
-import torch_geometric.nn as pyg_nn    
+# import torch_geometric as pyg
+# import torch_geometric.nn as pyg_nn    
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn.inits import reset, uniform
-import torch.nn.functional as F
+# import torch.nn.functional as F
 from joblib import dump, load
 import wandb
 from dataset.MatDataset import Sub_JHTDB
-from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
+# from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 from models.model import *
 from utils import *
 
@@ -84,11 +84,15 @@ class GNNPartitionScheduler():
         else:
             subsets = self.subsets
         for i, subset in enumerate(subsets):
+            # print(len(subset))
             wandb.init(project='domain_partition_scheduler', group='partition_training', config=train_config)
             train_dataset, val_dataset = random_split(subset, [int(0.8 * len(subset)), len(subset) - int(0.8 * len(subset))])
+            # print(train_config['batch_size'])
             train_loader = DataLoader(train_dataset, batch_size=train_config['batch_size'], shuffle=True)
             val_loader = DataLoader(val_dataset, batch_size=train_config['batch_size'], shuffle=False)
             model = self._initialize_model(self.model, 8, 8, width=64)
+
+            # model = model.to(device)
             if is_parallel:
                 model = nn.DataParallel(model)
                 model = model.to(device)
@@ -153,12 +157,12 @@ class GNNPartitionScheduler():
             self._train_sub_models(train_config, torch.device('cpu'), subset_idx, is_parallel=False)
 
     def predict(self, x):
-        pred_y_list = []
+        # pred_y_list = []
         for model in self.models:
             model.eval()
             with torch.no_grad():
                 for i in range(len(x)):
                     pred_y = model(x[i].x, x[i].edge_index, x[i].edge_attr)
-                    pred_y_list.append(pred_y)
-        return pred_y_list
+                    x[i].x = pred_y
+        return x
                  

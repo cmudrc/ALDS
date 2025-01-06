@@ -663,10 +663,36 @@ class DuctAnalysisDataset(GenericGraphDataset):
         y = torch.cat([subdomain.y for subdomain in subdomains], dim=0)
         y = y[global_node_id]
         # arrange data.pos of subdomains according to the global node id
+        pos = torch.cat([subdomain.pos for subdomain in subdomains], dim=0)
+        pos = pos[global_node_id]
+        # arrange data.edge_index of subdomains according to the global node id
+        edge_index = torch.cat([subdomain.edge_index for subdomain in subdomains], dim=1)
+        edge_index = edge_index[:, edge_index[0].argsort()]
+        edge_index = edge_index[:, edge_index[1].argsort()]
+        edge_index = edge_index[:, edge_index[0] != -1]
+        edge_index = edge_index[:, edge_index[1] != -1]
+        edge_index = edge_index[:, edge_index[0] != edge_index[1]]
+        # arrange data.edge_attr of subdomains according to the global node id
+        edge_attr = torch.cat([subdomain.edge_attr for subdomain in subdomains], dim=0)
+        edge_attr = edge_attr[edge_index[0]]
+        
         data.x = x
         data.y = y
+        data.pos = pos
+        data.edge_index = edge_index
+        data.edge_attr = edge_attr
 
         return data
     
     def get_one_full_sample(self, idx):
         return self.data
+    
+
+class SubGraphDataset(InMemoryDataset):
+    # similar to Sub_jhtdb, creates a subset of the original dataset given the indices
+    def __init__(self, root, indices):
+        super(SubGraphDataset, self).__init__(None)
+        self.indices = indices
+
+        self.data = torch.load(os.path.join(self.root, 'processed', 'data.pt'))
+        self.data = [self.data[i] for i in self.indices]

@@ -4,11 +4,11 @@ import time
 from models.classifier import *
 from models.encoder import *
 from models.model import *
-from models.scheduler import *
+# from models.scheduler import *
 # from deepxde.nn.pytorch import DeepONet
 from dataset.MatDataset import *
 from dataset.GraphDataset import *
-from torch_geometric.data import Data
+# from torch_geometric.data import Data
 import yaml
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -174,24 +174,25 @@ def init_dataset(name, **kwargs):
         raise ValueError(f'Invalid dataset name: {name}')
 
 
-def plot_3d_prediction(data, y_pred, save_mode='wandb', **kwargs):
-    position = data.pos.cpu().detach().numpy()
+def plot_3d_prediction(y_pred, save_mode='wandb', **kwargs):
+    position = y_pred.pos.cpu().detach().numpy()
     # projection 3d
-    fig, axs = plt.subplots(3, 1, projection='3d', figsize=(40, 15))
-    axs[0].scatter(position[:, 0], position[:, 1], position[:, 2], c=y_pred.cpu().detach().numpy(), cmap='plasma')
-    axs[0].quiver(position[:, 0], position[:, 1], position[:, 2], y_pred[:, 0].cpu().detach().numpy(), y_pred[:, 1].cpu().detach().numpy(), y_pred[:, 2].cpu().detach().numpy(), length=0.1, normalize=True)
-    axs[0].set_title('Prediction')
-    axs[0].axis('off')
+    fig = plt.figure(figsize=(15, 5))
+    ax0 = fig.add_subplot(131, projection='3d')
+    ax0.scatter(position[:, 0], position[:, 1], position[:, 2], c=torch.norm(y_pred.x[:, :3], dim=1).cpu().detach().numpy(), cmap='plasma')
+    ax0.quiver(position[:, 0], position[:, 1], position[:, 2], y_pred.x[:, 0].cpu().detach().numpy(), y_pred.x[:, 1].cpu().detach().numpy(), y_pred.x[:, 2].cpu().detach().numpy(), length=torch.norm(y_pred.x[:, :3], dim=1).cpu().detach().numpy(), normalize=True)
+    ax0.set_title('Prediction')
+    ax0.axis('off')
 
-    axs[1].scatter(position[:, 0], position[:, 1], position[:, 2], c=data.y.cpu().detach().numpy(), cmap='plasma')
-    axs[1].quiver(position[:, 0], position[:, 1], position[:, 2], data.y[:, 0].cpu().detach().numpy(), data.y[:, 1].cpu().detach().numpy(), data.y[:, 2].cpu().detach().numpy(), length=0.1, normalize=True)
-    axs[1].set_title('Ground truth')
-    axs[1].axis('off')
+    ax1 = fig.add_subplot(132, projection='3d')
+    ax1.scatter(position[:, 0], position[:, 1], position[:, 2], c=torch.norm(y_pred.y[:, :3], dim=1).cpu().detach().numpy(), cmap='plasma')
+    ax1.quiver(position[:, 0], position[:, 1], position[:, 2], y_pred.y[:, 0].cpu().detach().numpy(), y_pred.y[:, 1].cpu().detach().numpy(), y_pred.y[:, 2].cpu().detach().numpy(), length=torch.norm(y_pred.y[:, :3], dim=1).cpu().detach().numpy(), normalize=True)
+    ax1.set_title('Ground truth')
 
-    axs[2].scatter(position[:, 0], position[:, 1], position[:, 2], c=np.abs(data.y.cpu().detach().numpy() - y_pred.cpu().detach().numpy()), cmap='plasma')
-    axs[2].quiver(position[:, 0], position[:, 1], position[:, 2], data.y[:, 0].cpu().detach().numpy() - y_pred[:, 0].cpu().detach().numpy(), data.y[:, 1].cpu().detach().numpy() - y_pred[:, 1].cpu().detach().numpy(), data.y[:, 2].cpu().detach().numpy() - y_pred[:, 2].cpu().detach().numpy(), length=0.1, normalize=True)
-    axs[2].set_title('Absolute difference')
-    axs[2].axis('off')
+    # ax2 = fig.add_subplot(133, projection='3d')
+    # ax2.scatter(position[:, 0], position[:, 1], position[:, 2], c=np.abs(torch.norm(y_pred.x, dim=1).cpu().detach().numpy() - torch.norm(y_pred.y, dim=1).cpu().detach().numpy()), cmap='plasma')
+    # ax2.quiver(position[:, 0], position[:, 1], position[:, 2], y_pred.x[:, 0].cpu().detach().numpy() - y_pred.y[:, 0].cpu().detach().numpy(), y_pred.x[:, 1].cpu().detach().numpy() - y_pred.y[:, 1].cpu().detach().numpy(), y_pred.x[:, 2].cpu().detach().numpy() - y_pred.y[:, 2].cpu().detach().numpy(), length=0.1, normalize=True)
+    # ax2.set_title('Absolute difference')
 
     if save_mode == 'wandb':
         wandb.log({'prediction': wandb.Image(plt)})
@@ -200,18 +201,21 @@ def plot_3d_prediction(data, y_pred, save_mode='wandb', **kwargs):
     elif save_mode == 'save':
         os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
         plt.savefig(kwargs['path'] +'.pdf', format='pdf', dpi=300)
+    elif save_mode == 'save_png':
+        os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
+        plt.savefig(kwargs['path'] +'.png', format='png', dpi=300)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run ALDS experiment')
-    parser.add_argument('--dataset', type=str, default='jhtdb', help='Name of the dataset')
+    parser.add_argument('--dataset', type=str, default='duct', help='Name of the dataset')
     parser.add_argument('--encoder', type=str, default='pca', help='Name of the encoder')
     parser.add_argument('--classifier', type=str, default='kmeans', help='Name of the classifier')
-    parser.add_argument('--model', type=str, default='fno', help='Name of the model')
-    parser.add_argument('--exp_name', type=str, default='fno_jhtdb', help='Name of the experiment')
-    parser.add_argument('--mode', type=str, default='train', help='Mode of the experiment')
-    parser.add_argument('--exp_config', type=str, default='configs/exp_config/fno_jhtdb.yaml', help='Path to the experiment configuration file')
-    parser.add_argument('--train_config', type=str, default='configs/train_config/fno.yaml', help='Path to the training configuration file')
+    parser.add_argument('--model', type=str, default='teecnet', help='Name of the model')
+    parser.add_argument('--exp_name', type=str, default='duct_teecnet', help='Name of the experiment')
+    parser.add_argument('--mode', type=str, default='pred', help='Mode of the experiment')
+    parser.add_argument('--exp_config', type=str, default='configs/exp_config/teecnet_duct.yaml', help='Path to the experiment configuration file')
+    parser.add_argument('--train_config', type=str, default='configs/train_config/teecnet.yaml', help='Path to the training configuration file')
     args = parser.parse_args()
     return args
 

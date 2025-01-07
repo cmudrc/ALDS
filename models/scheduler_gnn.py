@@ -42,7 +42,7 @@ class GNNPartitionScheduler():
     def _load_models(self):
         models = []
         for i in range(self.num_partitions):
-            model = self._initialize_model(self.model, 8, 8, width=64)
+            model = self._initialize_model()
             model.load_state_dict(torch.load('logs/models/collection_{}/partition_{}.pth'.format(self.name, i), map_location=torch.device('cpu')))
             models.append(model)
         return models
@@ -180,7 +180,7 @@ class GNNPartitionScheduler():
         return x
                  
     @staticmethod
-    def _train_sub_models_parallel(model, name, rank, world_size, subsets, train_config):
+    def _train_sub_models_parallel(rank, model, name, world_size, subsets, train_config):
         # Setup distributed process group
         os.environ['MASTER_ADDR'] = 'localhost'
         os.environ['MASTER_PORT'] = '12355'

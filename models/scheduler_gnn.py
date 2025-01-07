@@ -257,8 +257,8 @@ class GNNPartitionScheduler():
                                 model.state_dict(), 
                                 f'logs/models/collection_{name}/partition_{i}.pth'
                             )
-                        dist.all_reduce(torch.tensor(train_loss), op=dist.ReduceOp.AVG)
-                        dist.all_reduce(torch.tensor(val_loss), op=dist.ReduceOp.AVG)
+                        dist.all_reduce(torch.tensor(train_loss, device=local_device), op=dist.ReduceOp.AVG)
+                        dist.all_reduce(torch.tensor(val_loss, device=local_device), op=dist.ReduceOp.AVG)
 
             models.append(model)
 

@@ -232,8 +232,9 @@ class GNNPartitionScheduler():
                     train_loss += loss.item()
                 train_loss /= len(train_loader)
                 # wandb.log({'train_loss': train_loss})
-                print(f'Epoch {epoch}: Train loss: {train_loss}')
-                
+
+                if rank == 0:
+                    print(f'Epoch {epoch}: Train loss: {train_loss}')
 
                 # Validation loop
                 if epoch % train_config['val_interval'] == 0:
@@ -256,8 +257,8 @@ class GNNPartitionScheduler():
                                 model.state_dict(), 
                                 f'logs/models/collection_{name}/partition_{i}.pth'
                             )
-                        dist.all_reduce(train_loss, op=dist.ReduceOp.AVG)
-                        dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
+                        dist.all_reduce(torch.tensor(train_loss), op=dist.ReduceOp.AVG)
+                        dist.all_reduce(torch.tensor(val_loss), op=dist.ReduceOp.AVG)
 
             models.append(model)
 

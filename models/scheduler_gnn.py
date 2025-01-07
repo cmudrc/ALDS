@@ -87,6 +87,7 @@ class GNNPartitionScheduler():
             subsets = self.subsets
 
         if is_parallel:
+            wandb.init(project='domain_partition_scheduler', group='partition_training', config=train_config)
             world_size = torch.cuda.device_count()
             mp.spawn(
                 self._train_sub_models_parallel,
@@ -225,10 +226,16 @@ class GNNPartitionScheduler():
                     batch = batch.to(local_device)
                     out = model(batch.x, batch.edge_index, batch.edge_attr)
                     loss = criterion(out, batch.y)
+                    # wandb.log({'train_loss': loss.item()})
                     loss.backward()
                     optimizer.step()
                     train_loss += loss.item()
                 train_loss /= len(train_loader)
+                wandb.log({'train_loss': train_loss})
+                
+                if epoch % train_config['log_interval'] == 0:
+                    print(f'Epoch {epoch}: Train loss: {train_loss}')
+                    scheduler.step()
 
                 # Validation loop
                 if epoch % train_config['val_interval'] == 0:
@@ -239,9 +246,10 @@ class GNNPartitionScheduler():
                             batch = batch.to(local_device)
                             out = model(batch.x, batch.edge_index, batch.edge_attr)
                             loss = criterion(out, batch.y)
+
                             val_loss += loss.item()
                         val_loss /= len(val_loader)
-
+                        wandb.log({'val_loss': val_loss})
                         # Save the best model
                         if val_loss < best_loss:
                             best_loss = val_loss

@@ -798,7 +798,7 @@ class KernelConv(pyg_nn.MessagePassing):
 
         self.linear = nn.Linear(in_channel, out_channel)
         # self.kernel = kernel(in_channel=in_edge, out_channel=out_channel**2, num_layers=num_layers, **kwargs)
-        self.operator_kernel = DenseNet([in_edge, 64, 64, out_channel**2], nn.ReLU)
+        self.operator_kernel = DenseNet([in_edge, 32, 32, out_channel**2], nn.Tanh)
         if kwargs['retrieve_weight']:
             self.retrieve_weights = True
             self.weight_k = None
@@ -830,7 +830,7 @@ class KernelConv(pyg_nn.MessagePassing):
        
         # x_j_k = torch.matmul((x_j - x_i).unsqueeze(1), weight_k).squeeze(1)
         # x_j_k = weight_k
-        x_j_op = torch.matmul((x_j - x_i).unsqueeze(1), weight_op).squeeze(1)
+        x_j_op = torch.matmul(x_j.unsqueeze(1), weight_op).squeeze(1)
 
         if self.retrieve_weights:
             # self.weight_k = weight_k

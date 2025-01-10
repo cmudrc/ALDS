@@ -584,8 +584,9 @@ class PowerSeriesConv(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        for conv in self.convs:
-            nn.init.xavier_uniform_(conv.weight)
+        # for conv in self.convs:
+            # nn.init.xavier_uniform_(conv.weight)
+        nn.init.xavier_uniform_(self.conv.weight)
         nn.init.uniform_(self.root_param, -1, 1)
 
     def forward(self, x):

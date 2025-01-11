@@ -299,10 +299,10 @@ class DuctAnalysisDataset(GenericGraphDataset):
         pass
 
     def len(self):
-        return len(self.data)
+        return len(self._data)
     
     def get(self, idx):
-        return self.data[idx]
+        return self._data[idx]
 
     @property
     def raw_file_names(self):

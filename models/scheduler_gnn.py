@@ -254,7 +254,7 @@ class GNNPartitionScheduler():
                             best_loss = val_loss
                             os.makedirs(f'logs/models/collection_{name}', exist_ok=True)
                             torch.save(
-                                model.state_dict(), 
+                                model.module.state_dict(), 
                                 f'logs/models/collection_{name}/partition_{i}.pth'
                             )
                         dist.all_reduce(torch.tensor(train_loss, device=local_device), op=dist.ReduceOp.AVG)
@@ -264,4 +264,8 @@ class GNNPartitionScheduler():
 
         # Cleanup distributed process group
         dist.destroy_process_group()
+
+        # save the models
+        if rank == 0:
+            torch.save(models[0].module.state_dict(), 'logs/models/collection_{}/partition_{}.pth'.format(name, i))
         return models

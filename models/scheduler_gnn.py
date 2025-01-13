@@ -240,15 +240,15 @@ class GNNPartitionScheduler():
                     # wandb.log({'train_loss': loss.item()})
                     loss.backward()
                     # log gradient during training
-                    for name, param in model.named_parameters():
-                        if param.grad is not None:
-                            wandb.log({f'{name}_grad': param.grad.norm()})
 
                     optimizer.step()
-                    wandb.log({'lr': optimizer.param_groups[0]['lr']})
+                    if rank == 0:
+                        for name, param in model.named_parameters():
+                            if param.grad is not None:
+                                wandb.log({f'{name}_grad': param.grad.norm()})
+                        wandb.log({'lr': optimizer.param_groups[0]['lr']})
                     train_loss += loss.item()
                 train_loss /= len(train_loader)
-                # wandb.log({'train_loss': train_loss})
 
                 if rank == 0:
                     print(f'Epoch {epoch}: Train loss: {train_loss}')
@@ -265,7 +265,11 @@ class GNNPartitionScheduler():
                             loss = criterion(out, batch.y)
                             val_loss += loss.item()
                         val_loss /= len(val_loader)
-                        wandb.log({'val_loss': val_loss})
+                        if rank == 0:
+                            wandb.log({'val_loss': val_loss})
+                            plot_data = batch[0]
+                            plot_data.y = out
+                            plot_3d_prediction(batch[0], save_mode='wandb')
                         print(f'Epoch {epoch}: Validation loss: {val_loss}')
                         # Save the best model
                         if val_loss < best_loss:

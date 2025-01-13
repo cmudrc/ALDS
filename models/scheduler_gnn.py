@@ -87,7 +87,6 @@ class GNNPartitionScheduler():
             subsets = self.subsets
 
         if is_parallel:
-            wandb.init(project='domain_partition_scheduler', group='partition_training', config=train_config)
             world_size = torch.cuda.device_count()
             mp.spawn(
                 self._train_sub_models_parallel,
@@ -115,7 +114,7 @@ class GNNPartitionScheduler():
 
                 criterion = torch.nn.MSELoss()
                 optimizer = torch.optim.Adam(model.parameters(), lr=train_config['lr'])
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=train_config['step_size'], gamma=train_config['gamma'])
+                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
                 epochs = train_config['epochs']
                 log_interval = train_config['log_interval']
                 val_interval = train_config['val_interval']
@@ -128,8 +127,15 @@ class GNNPartitionScheduler():
                         batch = batch.to(device)
                         out = model(batch.x, batch.edge_index, batch.edge_attr)
                         loss = criterion(out, batch.y)
+                        loss_l_infty = torch.max(torch.abs(out - batch.y))
+                        loss += 0.1 * loss_l_infty
                         loss.backward()
+                        # monitor gradient during training
+                        for name, param in model.named_parameters():
+                            if param.grad is not None:
+                                print({f'{name}_grad': param.grad.norm()})
                         optimizer.step()
+                        print(optimizer.param_groups[0]['lr'])
                         train_loss += loss.item()
                     train_loss /= len(train_loader)
                     wandb.log({'train_loss': train_loss})
@@ -143,6 +149,8 @@ class GNNPartitionScheduler():
                                 batch = batch.to(device)
                                 out = model(batch.x, batch.edge_index, batch.edge_attr)
                                 loss = criterion(out, batch.y)
+                                loss_l_infty = torch.max(torch.abs(out - batch.y))
+                                loss += 0.1 * loss_l_infty
                                 val_loss += loss.item()
                             val_loss /= len(val_loader)
                             wandb.log({'val_loss': val_loss})
@@ -190,6 +198,9 @@ class GNNPartitionScheduler():
         local_device = f"cuda:{rank}"
         models = []
 
+        if rank == 0:
+            wandb.init(project='domain_partition_scheduler', group='partition_training', config=train_config)
+
         # Iterate through subsets
         for i, subset in enumerate(subsets):
             # Split dataset
@@ -228,13 +239,20 @@ class GNNPartitionScheduler():
                     loss = criterion(out, batch.y)
                     # wandb.log({'train_loss': loss.item()})
                     loss.backward()
+                    # log gradient during training
+                    for name, param in model.named_parameters():
+                        if param.grad is not None:
+                            wandb.log({f'{name}_grad': param.grad.norm()})
+
                     optimizer.step()
+                    wandb.log({'lr': optimizer.param_groups[0]['lr']})
                     train_loss += loss.item()
                 train_loss /= len(train_loader)
                 # wandb.log({'train_loss': train_loss})
 
                 if rank == 0:
                     print(f'Epoch {epoch}: Train loss: {train_loss}')
+                    wandb.log({'train_loss': train_loss})
 
                 # Validation loop
                 if epoch % train_config['val_interval'] == 0:
@@ -245,10 +263,10 @@ class GNNPartitionScheduler():
                             batch = batch.to(local_device)
                             out = model(batch.x, batch.edge_index, batch.edge_attr)
                             loss = criterion(out, batch.y)
-
                             val_loss += loss.item()
                         val_loss /= len(val_loader)
-                        # wandb.log({'val_loss': val_loss})
+                        wandb.log({'val_loss': val_loss})
+                        print(f'Epoch {epoch}: Validation loss: {val_loss}')
                         # Save the best model
                         if val_loss < best_loss:
                             best_loss = val_loss

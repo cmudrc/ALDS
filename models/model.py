@@ -652,7 +652,7 @@ class KernelConv(pyg_nn.MessagePassing):
         num_layers (int): Number of layers in the Taylor-series expansion kernel.
     """
     def __init__(self, in_channel, out_channel, kernel, in_edge=5, num_layers=3, **kwargs):
-        super(KernelConv, self).__init__(aggr='add')
+        super(KernelConv, self).__init__(aggr='mean')
         self.in_channels = in_channel
         self.out_channels = out_channel
         self.in_edge = in_edge
@@ -661,7 +661,7 @@ class KernelConv(pyg_nn.MessagePassing):
 
         self.linear = nn.Linear(in_channel, out_channel)
         # self.kernel = kernel(in_channel=in_edge, out_channel=out_channel**2, num_layers=num_layers, **kwargs)
-        self.operator_kernel = DenseNet([in_edge, 32, 64, 32, out_channel**2], nn.Tanh)
+        self.operator_kernel = DenseNet([in_edge, 64, 64, out_channel**2], nn.ReLU)
         if kwargs['retrieve_weight']:
             self.retrieve_weights = True
             self.weight_k = None

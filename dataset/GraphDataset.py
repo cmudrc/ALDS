@@ -640,7 +640,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
         node_map = dict(zip(unique_nodes.numpy(), range(unique_nodes.size(0))))
         edge_index = torch.tensor([[node_map[edge[0].item()] for edge in subdomain.t()], [node_map[edge[1].item()] for edge in subdomain.t()]], dtype=torch.long)
         edge_index = edge_index.view(2, -1)
-        subdomain = Data(x=data.x[mask][:, :3], pos=data.pos[mask], y=data.y[mask][:, :3], edge_index=edge_index, edge_attr=edge_attr, global_node_id=unique_nodes)
+        subdomain = Data(x=data.x[mask][:, 0].unsqueeze(-1), pos=data.pos[mask], y=data.y[mask][:, 0].unsqueeze(-1), edge_index=edge_index, edge_attr=edge_attr, global_node_id=unique_nodes)
         return subdomain
     
     @staticmethod

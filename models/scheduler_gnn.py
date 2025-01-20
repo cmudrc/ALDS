@@ -218,7 +218,7 @@ class GNNPartitionScheduler():
             # Initialize model and wrap it with DistributedDataParallel
             # model = self._initialize_model(self.model, 8, 8, width=64)
             model = model.to(local_device)
-            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
+            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rank], find_unused_parameters=True)
 
             # Set up optimizer, criterion, and scheduler
             criterion = torch.nn.MSELoss()

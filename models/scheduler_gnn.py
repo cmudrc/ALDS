@@ -17,6 +17,7 @@ from dataset.MatDataset import Sub_JHTDB
 # from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 from models.model import *
 from utils import *
+import datetime
 
 
 class GNNPartitionScheduler():
@@ -87,10 +88,15 @@ class GNNPartitionScheduler():
             subsets = self.subsets
 
         if is_parallel:
+            subset = subsets[0]
+            train_dataset, val_dataset = random_split(
+                subset, 
+                [int(0.8 * len(subset)), len(subset) - int(0.8 * len(subset))]
+            )
             world_size = torch.cuda.device_count()
             mp.spawn(
                 self._train_sub_models_parallel,
-                args=(self.model, self.name, world_size, subsets, train_config),
+                args=(self.model, self.name, world_size, train_dataset, val_dataset, train_config),
                 nprocs=world_size,
                 join=True,
             )
@@ -189,11 +195,11 @@ class GNNPartitionScheduler():
         return x
                  
     @staticmethod
-    def _train_sub_models_parallel(rank, model, name, world_size, subsets, train_config):
+    def _train_sub_models_parallel(rank, model, name, world_size, train_dataset, val_dataset, train_config):
         # Setup distributed process group
         os.environ['MASTER_ADDR'] = 'localhost'
         os.environ['MASTER_PORT'] = '12355'
-        dist.init_process_group("nccl", rank=rank, world_size=world_size)
+        dist.init_process_group("nccl", rank=rank, world_size=world_size, timeout=datetime.timedelta(seconds=1000))
 
         local_device = f"cuda:{rank}"
         models = []
@@ -202,85 +208,94 @@ class GNNPartitionScheduler():
             wandb.init(project='domain_partition_scheduler', group='partition_training', config=train_config)
 
         # Iterate through subsets
-        for i, subset in enumerate(subsets):
-            # Split dataset
-            train_dataset, val_dataset = random_split(
-                subset, 
-                [int(0.8 * len(subset)), len(subset) - int(0.8 * len(subset))]
-            )
-            train_loader = DataLoader(
-                train_dataset, batch_size=train_config['batch_size'], shuffle=True, num_workers=4
-            )
-            val_loader = DataLoader(
-                val_dataset, batch_size=train_config['batch_size'], shuffle=False, num_workers=4
-            )
+        # for i, subset in enumerate(subsets):
+        # # Split dataset
+        # train_dataset, val_dataset = random_split(
+        #     subset, 
+        #     [int(0.8 * len(subset)), len(subset) - int(0.8 * len(subset))]
+        # )
+        # split train dataset based on rank
+        train_dataset_actual = train_dataset[rank::world_size]
+        train_loader = DataLoader(
+            train_dataset_actual, batch_size=train_config['batch_size'], shuffle=True, num_workers=4
+        )
+        val_loader = DataLoader(
+            val_dataset, batch_size=train_config['batch_size'], shuffle=False, num_workers=4
+        )
 
-            # Initialize model and wrap it with DistributedDataParallel
-            # model = self._initialize_model(self.model, 8, 8, width=64)
-            model = model.to(local_device)
-            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rank], find_unused_parameters=True)
+        # Initialize model and wrap it with DistributedDataParallel
+        # model = self._initialize_model(self.model, 8, 8, width=64)
+        model = model.to(local_device)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rank])
 
-            # Set up optimizer, criterion, and scheduler
-            criterion = torch.nn.MSELoss()
-            optimizer = torch.optim.Adam(model.parameters(), lr=train_config['lr'])
-            scheduler = torch.optim.lr_scheduler.StepLR(
-                optimizer, step_size=train_config['step_size'], gamma=train_config['gamma']
-            )
+        # Set up optimizer, criterion, and scheduler
+        criterion = torch.nn.MSELoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=train_config['lr'])
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=train_config['step_size'], gamma=train_config['gamma']
+        )
 
-            # Training loop
-            best_loss = np.inf
-            for epoch in range(train_config['epochs']):
-                model.train()
-                train_loss = 0
-                for batch in train_loader:
-                    optimizer.zero_grad()
-                    batch = batch.to(local_device)
-                    out = model(batch.x, batch.edge_index, batch.edge_attr)
-                    loss = criterion(out, batch.y) + 0.5 * torch.max(torch.abs(out - batch.y))
-                    # wandb.log({'train_loss': loss.item()})
-                    loss.backward()
-                    # log gradient during training
+        # Training loop
+        best_loss = np.inf
+        for epoch in range(train_config['epochs']):
+            model.train()
+            train_loss = 0
+            for batch in train_loader:
+                optimizer.zero_grad()
+                batch = batch.to(local_device)
+                out = model(batch.x, batch.edge_index, batch.edge_attr)
+                loss = criterion(out, batch.y) + torch.max(torch.abs(out - batch.y))
+                # wandb.log({'train_loss': loss.item()})
+                loss.backward()
+                # log gradient during training
 
-                    optimizer.step()
+                optimizer.step()
+                # if rank == 0:
+                    # for name, param in model.named_parameters():
+                    #     if param.grad is not None:
+                    #         wandb.log({f'{name}_grad': param.grad.norm()})
+                    # wandb.log({'lr': optimizer.param_groups[0]['lr']})
+                train_loss += loss.item()
+            train_loss /= len(train_loader)
+
+            if rank == 0:
+                print(f'Epoch {epoch}: Train loss: {train_loss}')
+                wandb.log({'train_loss': train_loss})
+                wandb.log({'lr': optimizer.param_groups[0]['lr']})
+
+            # Validation loop
+            if epoch % train_config['val_interval'] == 0:
+                model.eval()
+                val_loss = 0
+                with torch.no_grad():
+                    for batch in val_loader:
+                        batch = batch.to(local_device)
+                        out = model(batch.x, batch.edge_index, batch.edge_attr)
+                        loss = criterion(out, batch.y) + torch.max(torch.abs(out - batch.y))
+                        val_loss += loss.item()
+                    val_loss /= len(val_loader)
                     if rank == 0:
-                        for name, param in model.named_parameters():
-                            if param.grad is not None:
-                                wandb.log({f'{name}_grad': param.grad.norm()})
-                        wandb.log({'lr': optimizer.param_groups[0]['lr']})
-                    train_loss += loss.item()
-                train_loss /= len(train_loader)
-
-                if rank == 0:
-                    print(f'Epoch {epoch}: Train loss: {train_loss}')
-                    wandb.log({'train_loss': train_loss})
-
-                # Validation loop
-                if epoch % train_config['val_interval'] == 0:
-                    model.eval()
-                    val_loss = 0
-                    with torch.no_grad():
-                        for batch in val_loader:
-                            batch = batch.to(local_device)
-                            out = model(batch.x, batch.edge_index, batch.edge_attr)
-                            loss = criterion(out, batch.y) + 0.5 * torch.max(torch.abs(out - batch.y))
-                            val_loss += loss.item()
-                        val_loss /= len(val_loader)
-                        if rank == 0:
-                            wandb.log({'val_loss': val_loss})
-                            plot_data = batch[0]
-                            plot_data.y = out
-                            plot_3d_prediction(batch[0], save_mode='wandb')
+                        wandb.log({'val_loss': val_loss})
+                        plot_data = batch[0]
+                        plot_data.pred = out
+                        plot_3d_prediction(plot_data, save_mode='wandb')
                         print(f'Epoch {epoch}: Validation loss: {val_loss}')
-                        # Save the best model
-                        if val_loss < best_loss:
-                            best_loss = val_loss
-                            os.makedirs(f'logs/models/collection_{name}', exist_ok=True)
-                            torch.save(
-                                model.module.state_dict(), 
-                                f'logs/models/collection_{name}/partition_{i}.pth'
-                            )
-                        dist.all_reduce(torch.tensor(train_loss, device=local_device), op=dist.ReduceOp.AVG)
-                        dist.all_reduce(torch.tensor(val_loss, device=local_device), op=dist.ReduceOp.AVG)
+                    # Save the best model
+                    if val_loss < best_loss:
+                        best_loss = val_loss
+                        os.makedirs(f'logs/models/collection_{name}', exist_ok=True)
+                        torch.save(
+                            model.module.state_dict(), 
+                            f'logs/models/collection_{name}/partition_0.pth'
+                        )
+                    
+                    # Reduce the loss across all processes
+                    if epoch == 0:
+                        continue
+                    
+                    dist.all_reduce(torch.tensor(train_loss, device=local_device), op=dist.ReduceOp.AVG)
+                    dist.all_reduce(torch.tensor(val_loss, device=local_device), op=dist.ReduceOp.AVG)
+                    scheduler.step()
 
             models.append(model)
 
@@ -289,5 +304,5 @@ class GNNPartitionScheduler():
 
         # save the models
         if rank == 0:
-            torch.save(models[0].module.state_dict(), 'logs/models/collection_{}/partition_{}.pth'.format(name, i))
+            torch.save(models[0].module.state_dict(), 'logs/models/collection_{}/partition_{}.pth'.format(name, 0))
         return models

@@ -177,11 +177,11 @@ def init_dataset(name, **kwargs):
 def plot_3d_prediction(y_pred, save_mode='wandb', **kwargs):
     position = y_pred.pos.cpu().detach().numpy()
     # projection 3d
-    fig = plt.figure(figsize=(15, 5))
+    fig = plt.figure(figsize=(20, 5))
     ax0 = fig.add_subplot(131, projection='3d')
     ax0.scatter(position[:, 0], position[:, 1], position[:, 2], c=torch.norm(y_pred.x[:, :1], dim=1).cpu().detach().numpy(), cmap='plasma')
     # ax0.quiver(position[:, 0], position[:, 1], position[:, 2], y_pred.x[:, 0].cpu().detach().numpy(), y_pred.x[:, 1].cpu().detach().numpy(), y_pred.x[:, 2].cpu().detach().numpy(), length=torch.norm(y_pred.x[:, :3], dim=1).cpu().detach().numpy(), normalize=True)
-    ax0.set_title('Prediction')
+    ax0.set_title('Input')
     ax0.axis('off')
     plt.colorbar(ax0.collections[0], ax=ax0, orientation='vertical')
 
@@ -191,6 +191,13 @@ def plot_3d_prediction(y_pred, save_mode='wandb', **kwargs):
     ax1.set_title('Ground truth')
     ax1.axis('off')
     plt.colorbar(ax1.collections[0], ax=ax1, orientation='vertical')
+
+    ax2 = fig.add_subplot(133, projection='3d')
+    ax2.scatter(position[:, 0], position[:, 1], position[:, 2], c=torch.norm(y_pred.pred[:, :1], dim=1).cpu().detach().numpy(), cmap='plasma')
+    # ax2.quiver(position[:, 0], position[:, 1], position[:, 2], y_pred.pred[:, 0].cpu().detach().numpy(), y_pred.pred[:, 1].cpu().detach().numpy(), y_pred.pred[:, 2].cpu().detach().numpy(), length=torch.norm(y_pred.pred[:, :3], dim=1).cpu().detach().numpy(), normalize=True)
+    ax2.set_title('Prediction')
+    ax2.axis('off')
+    plt.colorbar(ax2.collections[0], ax=ax2, orientation='vertical')
 
     # ax2 = fig.add_subplot(133, projection='3d')
     # ax2.scatter(position[:, 0], position[:, 1], position[:, 2], c=np.abs(torch.norm(y_pred.x, dim=1).cpu().detach().numpy() - torch.norm(y_pred.y, dim=1).cpu().detach().numpy()), cmap='plasma')

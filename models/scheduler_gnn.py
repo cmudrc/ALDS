@@ -217,10 +217,10 @@ class GNNPartitionScheduler():
         # split train dataset based on rank
         train_dataset_actual = train_dataset[rank::world_size]
         train_loader = DataLoader(
-            train_dataset_actual, batch_size=train_config['batch_size'], shuffle=True, num_workers=4
+            train_dataset_actual, batch_size=train_config['batch_size'], shuffle=True, num_workers=2
         )
         val_loader = DataLoader(
-            val_dataset, batch_size=train_config['batch_size'], shuffle=False, num_workers=4
+            val_dataset, batch_size=train_config['batch_size'], shuffle=False, num_workers=2
         )
 
         # Initialize model and wrap it with DistributedDataParallel
@@ -244,7 +244,7 @@ class GNNPartitionScheduler():
                 optimizer.zero_grad()
                 batch = batch.to(local_device)
                 out = model(batch.x, batch.edge_index, batch.edge_attr)
-                loss = criterion(out, batch.y) + torch.max(torch.abs(out - batch.y))
+                loss = criterion(out, batch.y) 
                 # wandb.log({'train_loss': loss.item()})
                 loss.backward()
                 # log gradient during training
@@ -271,13 +271,13 @@ class GNNPartitionScheduler():
                     for batch in val_loader:
                         batch = batch.to(local_device)
                         out = model(batch.x, batch.edge_index, batch.edge_attr)
-                        loss = criterion(out, batch.y) + torch.max(torch.abs(out - batch.y))
+                        loss = criterion(out, batch.y)
                         val_loss += loss.item()
                     val_loss /= len(val_loader)
                     if rank == 0:
                         wandb.log({'val_loss': val_loss})
                         plot_data = batch[0]
-                        plot_data.pred = out
+                        plot_data.pred = out[0]
                         plot_3d_prediction(plot_data, save_mode='wandb')
                         print(f'Epoch {epoch}: Validation loss: {val_loss}')
                     # Save the best model

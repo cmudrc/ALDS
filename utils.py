@@ -9,6 +9,8 @@ from models.model import *
 from dataset.MatDataset import *
 from dataset.GraphDataset import *
 # from torch_geometric.data import Data
+import torch_geometric as pyg
+from torch_geometric.nn import GraphSAGE
 import yaml
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -155,6 +157,8 @@ def init_model(type, in_channels, out_channels, **kwargs):
         # return DeepONet(in_channels, kwargs['trunk_size'], activation=kwargs['activation'], \
         #                 kernel_initializer=kwargs['kernel_initializer'], num_outputs=out_channels)
         return DeepONet(in_channels, kwargs['trunk_size'], hidden_dim=kwargs['width'], output_dim=out_channels)
+    elif type == 'graphsage':
+        return GraphSAGE(in_channels, out_channels, num_layers=5)
     else:
         raise ValueError(f'Invalid model type: {type}')
     

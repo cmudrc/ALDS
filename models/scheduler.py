@@ -106,6 +106,7 @@ class PartitionScheduler():
             for epoch in range(epochs):
                 model.train()
                 loss_epoch = 0
+                accuracy_epoch = 0
                 for batch_idx, (x, y) in enumerate(train_loader):
                     optimizer.zero_grad()
                     try:
@@ -117,14 +118,18 @@ class PartitionScheduler():
                     # print(x.shape, y.shape)
                     
                     loss = criterion(pred, y)
+                    accuracy = r2_score(y.cpu().detach().numpy(), pred.cpu().detach().numpy())
 
                     loss_epoch += loss.item()
+                    accuracy_epoch += accuracy
                     loss.backward()
                     optimizer.step()
 
                 loss_epoch /= len(train_loader)
+                accuracy_epoch /= len(train_loader)
                 scheduler.step()
                 wandb.log({'loss': loss_epoch})
+                wandb.log({'accuracy': accuracy_epoch})
                 if epoch % log_interval == 0:
                     print(f'Epoch: {epoch + 1}/{epochs}, Loss: {loss_epoch}')
                     

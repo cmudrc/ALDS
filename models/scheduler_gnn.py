@@ -215,9 +215,9 @@ class GNNPartitionScheduler():
         #     [int(0.8 * len(subset)), len(subset) - int(0.8 * len(subset))]
         # )
         # split train dataset based on rank
-        train_dataset_actual = train_dataset[rank::world_size]
+        # train_dataset_actual = train_dataset[rank::world_size]
         train_loader = DataLoader(
-            train_dataset_actual, batch_size=train_config['batch_size'], shuffle=True, num_workers=2
+            train_dataset, batch_size=train_config['batch_size'], shuffle=True, num_workers=2
         )
         val_loader = DataLoader(
             val_dataset, batch_size=train_config['batch_size'], shuffle=False, num_workers=2
@@ -271,13 +271,14 @@ class GNNPartitionScheduler():
                     for batch in val_loader:
                         batch = batch.to(local_device)
                         out = model(batch.x, batch.edge_index, batch.edge_attr)
+                        # print(out.shape)
                         loss = criterion(out, batch.y)
                         val_loss += loss.item()
                     val_loss /= len(val_loader)
                     if rank == 0:
                         wandb.log({'val_loss': val_loss})
                         plot_data = batch[0]
-                        plot_data.pred = out[0]
+                        plot_data.pred = out[:plot_data.x.shape[0]]
                         plot_3d_prediction(plot_data, save_mode='wandb')
                         print(f'Epoch {epoch}: Validation loss: {val_loss}')
                     # Save the best model
@@ -290,8 +291,8 @@ class GNNPartitionScheduler():
                         )
                     
                     # Reduce the loss across all processes
-                    if epoch == 0:
-                        continue
+                    # if epoch == 0:
+                    #     continue
                     
                     dist.all_reduce(torch.tensor(train_loss, device=local_device), op=dist.ReduceOp.AVG)
                     dist.all_reduce(torch.tensor(val_loss, device=local_device), op=dist.ReduceOp.AVG)

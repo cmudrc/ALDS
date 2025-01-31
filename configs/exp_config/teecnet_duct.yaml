@@ -18,6 +18,7 @@ retrieve_weight: False
 # message_passing_steps: 10
 # nmlp_layers: 2
 # mlp_hidden_dim: 128
+num_layers: 5
 
 # data configs
 root: 'data/Duct'

@@ -159,6 +159,8 @@ def init_model(type, in_channels, out_channels, **kwargs):
         return DeepONet(in_channels, kwargs['trunk_size'], hidden_dim=kwargs['width'], output_dim=out_channels)
     elif type == 'graphsage':
         return GraphSAGE(in_channels, out_channels, num_layers=5)
+    elif type == 'neuralop':
+        return KernelNN(width=kwargs['width'], ker_width=kwargs['width'], depth=kwargs['num_layers'], in_width=in_channels, out_width=out_channels)
     else:
         raise ValueError(f'Invalid model type: {type}')
     

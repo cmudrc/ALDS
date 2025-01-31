@@ -17,7 +17,7 @@ from torch_geometric.utils import subgraph
 # from fenics import *
 # from dolfin import *
 # from fenicstools.Interpolation import interpolate_nonmatching_mesh
-from scipy.spatial import Delaunay
+from scipy.spatial import Delaunay, KDTree 
 
 
 class GenericGraphDataset(InMemoryDataset):
@@ -434,28 +434,36 @@ class DuctAnalysisDataset(GenericGraphDataset):
         # Find the tetrahedrons (simplices) containing each new point
         simplex_indices = delaunay.find_simplex(new_points)
 
-        # Find the simplices containing each new point
-        simplex_indices = delaunay.find_simplex(new_points)
+        # precompute kdtree for inverse distance weighting
+        kdtree = KDTree(points)
 
         # Preallocate result
         interpolated_physics = np.zeros((new_points.shape[0], 1))
 
+        epsilon = 1e-10  # Small value to avoid division by zero
         # Efficient computation of barycentric coordinates
         for i, simplex in enumerate(simplex_indices):
-            if simplex == -1:  # Point outside convex hull
-                # interpolated_physics[i] = np.nan
-                interpolated_physics[i] = 0
-                continue
+            # if simplex == -1:  # Point outside convex hull, fall back to inverse distance weighting
+            # interpolated_physics[i] = np.nan
+            distances, idx = kdtree.query(new_points[i], k=4)
+            if np.any(distances < epsilon):  # Handle zero-distance case
+            # Assign the physics value of the nearest point
+                interpolated_physics[i] = physics[idx[np.argmin(distances)]]
+            else:
+                weights = 1 / distances
+                weights /= np.sum(weights)
+                interpolated_physics[i] = np.sum(weights * physics[idx].flatten())
+                # continue
 
-            # Get the transform for the simplex
-            transform = delaunay.transform[simplex]
-            coords = new_points[i] - transform[3]
-            barycentric_coords = np.dot(transform[:3], coords)
-            barycentric_coords = np.append(barycentric_coords, 1 - np.sum(barycentric_coords))
+            # # Get the transform for the simplex
+            # transform = delaunay.transform[simplex]
+            # coords = new_points[i] - transform[3]
+            # barycentric_coords = np.dot(transform[:3], coords)
+            # barycentric_coords = np.append(barycentric_coords, 1 - np.sum(barycentric_coords))
 
-            # Interpolate physics
-            vertices = delaunay.simplices[simplex]
-            interpolated_physics[i] = np.sum(physics[vertices].flatten() * barycentric_coords)
+            # # Interpolate physics
+            # vertices = delaunay.simplices[simplex]
+            # interpolated_physics[i] = np.sum(physics[vertices].flatten() * barycentric_coords)
             # check if nan in the interpolated physics
             # if np.isnan(interpolated_physics[i]):
             #     print('nan exists in interpolated physics')
@@ -626,20 +634,42 @@ class DuctAnalysisDataset(GenericGraphDataset):
             (data.pos[:, 2] >= z) & (data.pos[:, 2] < z + sub_size)
         if mask.unique().size(0) == 1:
             return None
-        else:
-            subdomain, _ = subgraph(mask, data.edge_index)
-
+        # if number of points inside the subdomain is less than 4, return a fully connected graph locally
+        if mask.sum() <= 4:
+            # subdomain = torch.combinations(torch.where(mask)[0], with_replacement=False).t()
+            # subdomain = torch.tensor(subdomain, dtype=torch.long)
+            # edge_attr = torch.norm(data.pos[subdomain[0]] - data.pos[subdomain[1]], dim=1).unsqueeze(1)
+            # subdomain = Data(x=data.x[mask][:, 0].unsqueeze(-1), pos=data.pos[mask], y=data.y[mask][:, 0].unsqueeze(-1), edge_index=subdomain, edge_attr=edge_attr, global_node_id=torch.where(mask)[0])
+            # return subdomain
+            return None
+        # else:
+        #     subdomain, _ = subgraph(mask, data.edge_index)
+        edge_index = []
         # check if nan exists in the subdomain
         if torch.isnan(data.x[mask]).sum() > 0:
             print('nan exists')
             return None
 
-        edge_attr = torch.norm(data.pos[subdomain[0]] - data.pos[subdomain[1]], dim=1).unsqueeze(1)
+        # edge_attr = torch.norm(data.pos[subdomain[0]] - data.pos[subdomain[1]], dim=1).unsqueeze(1)
         # reorganize edge index to be start from 0
-        unique_nodes = torch.unique(subdomain)
-        node_map = dict(zip(unique_nodes.numpy(), range(unique_nodes.size(0))))
-        edge_index = torch.tensor([[node_map[edge[0].item()] for edge in subdomain.t()], [node_map[edge[1].item()] for edge in subdomain.t()]], dtype=torch.long)
-        edge_index = edge_index.view(2, -1)
+        # unique_nodes = torch.unique(subdomain)
+        # node_map = dict(zip(unique_nodes.numpy(), range(unique_nodes.size(0))))
+        # edge_index = torch.tensor([[node_map[edge[0].item()] for edge in subdomain.t()], [node_map[edge[1].item()] for edge in subdomain.t()]], dtype=torch.long)
+        # edge_index = edge_index.view(2, -1)
+        # rebuild edge index with delaunay triangulation
+        cells = torch.tensor(Delaunay(data.pos[mask]).simplices, dtype=torch.long)
+        # get mapping from global node id to local node id
+        unique_nodes = torch.unique(cells)
+        global_id = np.where(mask)[0]
+        # node_map = dict(zip(global_id, range(global_id.size)))
+
+        for cell in cells:
+            for i in range(cell.shape[0]):
+                edge_index.append([cell[i], cell[(i + 1) % cell.shape[0]]])
+                edge_index.append([cell[(i + 1) % cell.shape[0]], cell[i]])
+        edge_index = torch.tensor(edge_index).t().contiguous().view(2, -1)
+        edge_attr = torch.norm(data.pos[global_id[edge_index[0]]] - data.pos[global_id[edge_index[1]]], dim=1).unsqueeze(1)
+        
         subdomain = Data(x=data.x[mask][:, 0].unsqueeze(-1), pos=data.pos[mask], y=data.y[mask][:, 0].unsqueeze(-1), edge_index=edge_index, edge_attr=edge_attr, global_node_id=unique_nodes)
         return subdomain
     

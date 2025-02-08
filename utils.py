@@ -14,9 +14,12 @@ from torch_geometric.nn import GraphSAGE
 import yaml
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from matplotlib.tri import Triangulation
+from itertools import combinations
 import wandb
 from numba import jit
+import vtk
+from vtk import vtkUnstructuredGrid, vtkPoints, vtkCellArray, vtkXMLUnstructuredGridWriter, vtkTetra, vtkHexahedron
+import networkx as nx
 
 
 def load_yaml(path):
@@ -227,8 +230,8 @@ def parse_args():
     parser.add_argument('--dataset', type=str, default='duct', help='Name of the dataset')
     parser.add_argument('--encoder', type=str, default='pca', help='Name of the encoder')
     parser.add_argument('--classifier', type=str, default='kmeans', help='Name of the classifier')
-    parser.add_argument('--model', type=str, default='teecnet', help='Name of the model')
-    parser.add_argument('--exp_name', type=str, default='duct_teecnet', help='Name of the experiment')
+    parser.add_argument('--model', type=str, default='neuralop', help='Name of the model')
+    parser.add_argument('--exp_name', type=str, default='collection_duct_neuralop', help='Name of the experiment')
     parser.add_argument('--mode', type=str, default='pred', help='Mode of the experiment')
     parser.add_argument('--exp_config', type=str, default='configs/exp_config/teecnet_duct.yaml', help='Path to the experiment configuration file')
     parser.add_argument('--train_config', type=str, default='configs/train_config/teecnet.yaml', help='Path to the training configuration file')
@@ -298,3 +301,37 @@ def plot_3d_partition(data, y_pred, labels, save_mode='wandb', **kwargs):
     elif save_mode == 'save':
         os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
         plt.savefig(kwargs['path'] +'.pdf', format='pdf', dpi=300)
+
+
+def save_pyg_to_vtk(data, mesh_path, save_path):
+    # save the prediction data to vtk file
+    # data: pytorch geometric data object
+    # mesh_path: path to the original mesh data
+    # save_path: path to save the vtk file
+    reader = vtk.vtkFLUENTReader()
+    reader.SetFileName(mesh_path)
+    reader.Update()
+    mesh = reader.GetOutput().GetBlock(0)
+
+    # create a new vtk unstructured grid
+    grid = vtk.vtkUnstructuredGrid()
+    grid.DeepCopy(mesh)
+
+    # add the prediction data to the grid
+    pred = data.pred.cpu().detach().numpy()
+    pred = np.expand_dims(pred, axis=1)
+    pred = np.concatenate([pred, pred, pred], axis=1)
+    pred = pred.flatten()
+    pred = np.ascontiguousarray(pred, dtype=np.float64)
+    vtk_pred = vtk.vtkDoubleArray()
+    vtk_pred.SetNumberOfComponents(3)
+    vtk_pred.SetNumberOfTuples(len(pred) // 3)
+    vtk_pred.SetArray(pred, len(pred), 1)
+    vtk_pred.SetName('prediction')
+    grid.GetPointData().AddArray(vtk_pred)
+
+    # write the grid to vtk file
+    writer = vtk.vtkXMLUnstructuredGridWriter()
+    writer.SetFileName(save_path)
+    writer.SetInputData(grid)
+    writer.Write()

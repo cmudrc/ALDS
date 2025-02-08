@@ -1,23 +1,22 @@
 import os
+import meshio
 # os.environ['HDF5_DISABLE_VERSION_CHECK'] = '2' # Only add this for TRACE to work, comment out for other cases! 
 
 import torch
 import numpy as np
-import meshio
+import random
+import vtk
+from vtk import vtkFLUENTReader
+from collections import deque
 import pandas as pd
 # import multiprocessing as mp
 from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
-# from threading import Thread
-import scipy.sparse as sp
-from operator import itemgetter
 import torch_geometric as pyg
 from torch_geometric.data import Data, InMemoryDataset
 # from torch_geometric.loader import DataLoader
 from torch_geometric.utils import subgraph
-# from fenics import *
-# from dolfin import *
-# from fenicstools.Interpolation import interpolate_nonmatching_mesh
 from scipy.spatial import Delaunay, KDTree 
+import multiprocessing as mp
 
 
 class GenericGraphDataset(InMemoryDataset):
@@ -322,18 +321,91 @@ class DuctAnalysisDataset(GenericGraphDataset):
         torch.save(data_list, self.processed_paths[0])
 
     @staticmethod
+    def extract_unstructured_grid(multi_block):
+        """
+        Extracts the first vtkUnstructuredGrid from a vtkMultiBlockDataSet.
+        """
+        for i in range(multi_block.GetNumberOfBlocks()):
+            block = multi_block.GetBlock(i)
+            if isinstance(block, vtk.vtkUnstructuredGrid):
+                return block
+        raise ValueError("No vtkUnstructuredGrid found in the .msh file.")
+    
+    @staticmethod
+    def extract_wall_block(multi_block, target_name="wall:walls"):
+        """
+        Extracts the 'wall:walls' block from the vtkMultiBlockDataSet.
+        Returns the unstructured grid corresponding to wall surfaces.
+        """
+        for i in range(multi_block.GetNumberOfBlocks()):
+            block = multi_block.GetBlock(i)
+            name = multi_block.GetMetaData(i).Get(vtk.vtkCompositeDataSet.NAME()) if multi_block.GetMetaData(i) else None
+            
+            if isinstance(block, vtk.vtkUnstructuredGrid) and name and target_name in name:
+                return block
+        raise ValueError(f"No block named '{target_name}' found in the .msh file.")
+    
+    @staticmethod
+    def vtk_to_pyg(data):
+        """
+        Converts a vtkUnstructuredGrid to a torch_geometric.data.Data object.
+        """
+        # Step 1: Extract vertex positions (nodes)
+        num_points = data.GetNumberOfPoints()
+        pos = np.array([data.GetPoint(i) for i in range(num_points)], dtype=np.float32)
+        pos = torch.tensor(pos, dtype=torch.float)
+
+        # Step 2: Extract edges from cell connectivity
+        edge_set = set()
+        for i in range(data.GetNumberOfCells()):
+            cell = data.GetCell(i)
+            num_cell_points = cell.GetNumberOfPoints()
+
+            for j in range(num_cell_points):
+                for k in range(j + 1, num_cell_points):
+                    edge = (cell.GetPointId(j), cell.GetPointId(k))
+                    edge_set.add(edge)
+                    edge = (cell.GetPointId(k), cell.GetPointId(j))
+                    edge_set.add(edge)
+
+        edge_index = torch.tensor(list(edge_set), dtype=torch.long).t()
+
+        return Data(pos=pos, edge_index=edge_index)
+
+    @staticmethod
     def _process_file(path_list):
         data_list = []
         # mesh_idx = ['High', 'Med', 'Low']
         # process mesh files
         for idx, path in enumerate(path_list[:2]):
-            mesh = meshio.read(path)
-            pos = torch.tensor(mesh.points, dtype=torch.float)
-            cells = [mesh.cells_dict['quad'], mesh.cells_dict['triangle']]
-            edge_index = DuctAnalysisDataset._cell_to_connectivity(cells)
+            reader = vtkFLUENTReader()
+            reader.SetFileName(path)
+            reader.Update()
 
-            # edge attr is the length of the edge
-            # edge_attr = torch.norm(pos[edge_index[0]] - pos[edge_index[1]], dim=1).unsqueeze(1)
+            # Extract mesh from VTK output
+            dataset = reader.GetOutput()
+
+            mesh = DuctAnalysisDataset.extract_unstructured_grid(dataset)
+            num_points = mesh.GetNumberOfPoints()
+            num_cells = mesh.GetNumberOfCells()
+
+            if num_points == 0 or num_cells == 0:
+                raise ValueError("No valid mesh data found in the .msh file.")
+
+            try:
+                wall_mesh = DuctAnalysisDataset.extract_wall_block(dataset)
+                wall_indices = set()
+
+                for i in range(wall_mesh.GetNumberOfCells()):
+                    cell = wall_mesh.GetCell(i)
+                    for j in range(cell.GetNumberOfPoints()):
+                        wall_indices.add(cell.GetPointId(j))
+
+                wall_index_tensor = torch.tensor(list(wall_indices), dtype=torch.long)
+                print(f"Extracted {len(wall_indices)} wall node indices.")
+            except ValueError:
+                print("Wall block not found.")
+                wall_index_tensor = torch.tensor([], dtype=torch.long)
             
             # process physics files
             # print(path_list[idx+3])
@@ -353,29 +425,19 @@ class DuctAnalysisDataset(GenericGraphDataset):
             if torch.isnan(velocity).sum() > 0 or torch.isnan(pressure).sum() > 0:
                 print('nan exists in original physics data')
 
-            # identify mesh wall nodes as nodes that satisfy the following conditions:
-            # 1. part of triangle cells
-            # 2. has no velocity
-            wall_idx = []
-            for cell in mesh.cells_dict['triangle']:
-                for node in cell:
-                    if torch.sum(velocity[node]) == 0:
-                        wall_idx.append(node)
-            wall_idx = torch.tensor(wall_idx, dtype=torch.float)
-            wall_idx = torch.unique(wall_idx)
-
             # create a torch_geometric.data.Data object if the mesh is of high resolution
             if idx == 0:
-                data = Data(x=torch.tensor([0]), y=torch.cat([velocity, pressure], dim=1), pos=pos, edge_index=torch.Tensor(edge_index), wall_idx=wall_idx)
+                mesh_high = mesh
+                data = DuctAnalysisDataset.vtk_to_pyg(mesh)
+                data.y = torch.cat([velocity, pressure], dim=1)
+                data.wall_idx = wall_index_tensor
                 data_list.append(data)
             else:
                 # call lagrangian interpolation to interpolate the physics data to the high resolution mesh
-                pos_high = data_list[0].pos
-                pos_low = pos
-                velocity_x_high = DuctAnalysisDataset._lagrangian_interpolation(pos_low, velocity_x, pos_high)
-                velocity_y_high = DuctAnalysisDataset._lagrangian_interpolation(pos_low, velocity_y, pos_high)
-                velocity_z_high = DuctAnalysisDataset._lagrangian_interpolation(pos_low, velocity_z, pos_high)
-                pressure_high = DuctAnalysisDataset._lagrangian_interpolation(pos_low, pressure, pos_high)
+                velocity_x_high = DuctAnalysisDataset._lagrangian_interpolation(mesh, velocity_x, mesh_high)
+                velocity_y_high = DuctAnalysisDataset._lagrangian_interpolation(mesh, velocity_y, mesh_high)
+                velocity_z_high = DuctAnalysisDataset._lagrangian_interpolation(mesh, velocity_z, mesh_high)
+                pressure_high = DuctAnalysisDataset._lagrangian_interpolation(mesh, pressure, mesh_high)
 
                 velocity_high = torch.cat([velocity_x_high, velocity_y_high, velocity_z_high], dim=1)
                 velocity_high = torch.tensor(velocity_high, dtype=torch.float)
@@ -393,285 +455,195 @@ class DuctAnalysisDataset(GenericGraphDataset):
         return data_list
     
     @staticmethod
-    def _cell_to_connectivity(cells):
-        all_edges = []
-        for cell_group in cells:
-            for cell in cell_group:
-                for i in range(cell.size):
-                    all_edges.append([cell[i], cell[(i + 1) % cell.size]])
-                    # add the reverse edge
-                    all_edges.append([cell[(i + 1) % cell.size], cell[i]])
-            # all_edges.append(edges)
-        return torch.tensor(all_edges).t().contiguous().view(2, -1)
-    
-    @staticmethod
-    def _lagrangian_interpolation(points, physics, new_points):
+    def _lagrangian_interpolation(mesh, physics, new_mesh):
         """
         Perform 1st-order Lagrangian interpolation of physics properties 
         at a new set of points based on provided 3D points and physics information.
 
         Args:
-            points (np.ndarray): Array of shape (num_points, 3) representing the 3D positions of the points.
+            mesh (vtkUnstructuredGrid): Unstructured mesh loaded from an Ansys .msh file via vtkFLUENTReader.
             physics (np.ndarray): Array of shape (num_points, 1) representing the physics information at the points.
-            new_points (np.ndarray): Array of shape (num_new_points, 3) representing the new points for interpolation.
+            new_mesh (vtkUnstructuredGrid): Unstructured mesh loaded from an Ansys .msh file for interpolation.
 
         Returns:
             np.ndarray: Interpolated physics values at the new points of shape (num_new_points, 1).
         """
-        # Ensure correct input shapes
-        points = np.asarray(points)
-        physics = np.asarray(physics)
-        new_points = np.asarray(new_points)
+
+        # Ensure physics array shape
+        physics = np.asarray(physics).flatten()
+        num_original_points = mesh.GetNumberOfPoints()
         
-        if points.shape[1] != 3 or new_points.shape[1] != 3:
-            raise ValueError("Points and new_points must have shape (*, 3).")
-        if physics.shape[0] != points.shape[0] or physics.shape[1] != 1:
-            raise ValueError("Physics must have shape (num_points, 1).")
+        if physics.shape[0] != num_original_points:
+            raise ValueError("Mismatch: physics array length must match the number of points in the original mesh.")
 
-        # Create a Delaunay triangulation of the input points
-        delaunay = Delaunay(points)
+        num_new_points = new_mesh.GetNumberOfPoints()
+        if num_new_points == 0:
+            raise ValueError("New mesh has no points to interpolate.")
 
-        # Find the tetrahedrons (simplices) containing each new point
-        simplex_indices = delaunay.find_simplex(new_points)
+        # Step 1: Attach physics data to the original mesh
+        physics_array = vtk.vtkFloatArray()
+        physics_array.SetName("PhysicsData")
+        physics_array.SetNumberOfComponents(1)
+        physics_array.SetNumberOfTuples(num_original_points)
 
-        # precompute kdtree for inverse distance weighting
-        kdtree = KDTree(points)
+        for i in range(num_original_points):
+            physics_array.SetValue(i, physics[i])
 
-        # Preallocate result
-        interpolated_physics = np.zeros((new_points.shape[0], 1))
+        mesh.GetPointData().AddArray(physics_array)
 
-        epsilon = 1e-10  # Small value to avoid division by zero
-        # Efficient computation of barycentric coordinates
-        for i, simplex in enumerate(simplex_indices):
-            # if simplex == -1:  # Point outside convex hull, fall back to inverse distance weighting
-            # interpolated_physics[i] = np.nan
-            distances, idx = kdtree.query(new_points[i], k=4)
-            if np.any(distances < epsilon):  # Handle zero-distance case
-            # Assign the physics value of the nearest point
-                interpolated_physics[i] = physics[idx[np.argmin(distances)]]
-            else:
-                weights = 1 / distances
-                weights /= np.sum(weights)
-                interpolated_physics[i] = np.sum(weights * physics[idx].flatten())
-                # continue
+        # Step 2: Use vtkProbeFilter for interpolation
+        probe_filter = vtk.vtkProbeFilter()
+        probe_filter.SetSourceData(mesh)  # Set original mesh as the source
+        probe_filter.SetInputData(new_mesh)  # Set new mesh as the target for interpolation
+        probe_filter.Update()
 
-            # # Get the transform for the simplex
-            # transform = delaunay.transform[simplex]
-            # coords = new_points[i] - transform[3]
-            # barycentric_coords = np.dot(transform[:3], coords)
-            # barycentric_coords = np.append(barycentric_coords, 1 - np.sum(barycentric_coords))
+        # Step 3: Extract interpolated values
+        interpolated_array = probe_filter.GetOutput().GetPointData().GetArray("PhysicsData")
 
-            # # Interpolate physics
-            # vertices = delaunay.simplices[simplex]
-            # interpolated_physics[i] = np.sum(physics[vertices].flatten() * barycentric_coords)
-            # check if nan in the interpolated physics
-            # if np.isnan(interpolated_physics[i]):
-            #     print('nan exists in interpolated physics')
+        if interpolated_array is None:
+            raise RuntimeError("Interpolation failed: No physics data found in the output.")
 
-        return torch.tensor(interpolated_physics)
+        # Convert to NumPy array
+        interpolated_values = np.array([interpolated_array.GetValue(i) for i in range(num_new_points)], dtype=np.float32)
+
+        return torch.tensor(interpolated_values.reshape(-1, 1), dtype=torch.float)
     
     def get_partition_domain(self, data, mode):
-        # because the current dataset only contains one data object, only perform partitioning on the first data object
+        """
+        returns a full partitioned collection of subdomains of the original domain
+        
+        :param data: the original domain stored in a torch_geometric.data.Data object. 
+        """
         if os.path.exists(os.path.join(self.root, 'partition', 'data.pt')):
             subdomains = torch.load(os.path.join(self.root, 'partition', 'data.pt'), map_location=torch.device('cpu'))
         else:
             os.makedirs(os.path.join(self.root, 'partition'), exist_ok=True)
-            if mode == 'train':
-                data = data[0]
-                subdomains = self._get_partition_domain(data, self.sub_size)
-                torch.save(subdomains, os.path.join(self.root, 'partition', 'data.pt'))
-            else:
-                return data   
-        return subdomains  
-    
-    # @staticmethod
-    # def _get_partition_domain(data, sub_size=0.001):
-    #     """
-    #     returns a full partitioned collection of subdomains of the original domain
-        
-    #     :param data: the original domain stored in a torch_geometric.data.Data
-    #     """
-    #     subdomains = []
-    #     # get domain geometry bounds
-    #     x_min, x_max = data.pos[:, 0].min(), data.pos[:, 0].max()
-    #     y_min, y_max = data.pos[:, 1].min(), data.pos[:, 1].max()
-    #     z_min, z_max = data.pos[:, 2].min(), data.pos[:, 2].max()
-    #     # temporary fix to the device issue
-    #     # data.edge_index = torch.Tensor(data.edge_index)
-    #     print('x range: ', x_min, x_max)
-    #     print('y range: ', y_min, y_max)
-    #     print('z range: ', z_min, z_max)
-    #     print('sub_size: ', sub_size)
+            reader = vtkFLUENTReader()
+            reader.SetFileName(os.path.join(self.raw_dir, self.raw_file_names[0]))
+            reader.Update()
+            mesh = reader.GetOutput().GetBlock(0)
+            data = data[0]
+            x, y, pos = data.x, data.y, data.pos
+            num_subdomains = self.sub_size
+            subdomains = self._get_partition_domain(mesh, x, y, pos, num_subdomains)
 
-    #     # subdomain_count = 0
-    #     # divide the domain into subdomains according to self.sub_size
-    #     for x in np.arange(x_min, x_max, sub_size):
-    #         for y in np.arange(y_min, y_max, sub_size):
-    #             for z in np.arange(z_min, z_max, sub_size):
-    #                 # find nodes within the subdomain
-    #                 mask = (data.pos[:, 0] >= x) & (data.pos[:, 0] < x + sub_size) & \
-    #                     (data.pos[:, 1] >= y) & (data.pos[:, 1] < y + sub_size) & \
-    #                     (data.pos[:, 2] >= z) & (data.pos[:, 2] < z + sub_size)
-    #                 if mask.unique().size(0) == 1:
-    #                     continue
-    #                 else:
-    #                     subdomain, _ = subgraph(mask, data.edge_index)
-
-    #                 ########################## TBD: fix boundary information ##########################
-    #                 '''
-    #                 # add boundary information to the subdomain. boundary information is applied as vector on the boundary nodes
-    #                 # indentify boundary nodes
-    #                 boundary_mask = GenericGraphDataset.get_graph_boundary_edges(subdomain)
-    #                 boundary_nodes = subdomain.edge_index[0][boundary_mask].unique()
-    #                 boundary_nodes = torch.cat([boundary_nodes, subdomain.edge_index[1][boundary_mask].unique()])
-    #                 boundary_nodes = boundary_nodes.unique()
-    #                 boundary_nodes = boundary_nodes[boundary_nodes != -1]
-
-    #                 # add boundary information to the subdomain
-    #                 boundary_info = torch.zeros((boundary_nodes.size(0), 3))
-    #                 # compute boundary vector
-    #                 # get all edges connected to the boundary nodes
-    #                 boundary_edges = subdomain.edge_index[:, boundary_mask]
-    #                 # for every node on the boundary, compute Neumann boundary condition by averaging the 'x' property of the connected nodes
-    #                 for i, node in enumerate(boundary_nodes):
-    #                     connected_nodes = boundary_edges[1][boundary_edges[0] == node]
-
-    #                     # compute magnitude & direction of the boundary vector
-    #                     boundary_vector = data.pos[node] - data.pos[connected_nodes]
-    #                     boundary_magnitude = data.x[node] - data.x[connected_nodes]
-    #                     # compute Neumann boundary condition
-    #                     boundary_info[i] = boundary_magnitude / boundary_vector.norm()
-
-    #                 # add boundary information to the subdomain
-    #                 subdomain.bc = boundary_info
-    #                 '''
-    #                 ####################################################################################
-    #                 # check if nan exists in the subdomain
-    #                 if torch.isnan(data.x[mask]).sum() > 0:
-    #                     print('nan exists')
-    #                     continue
-
-    #                 edge_attr = torch.norm(data.pos[subdomain[0]] - data.pos[subdomain[1]], dim=1).unsqueeze(1)
-    #                 # reorganize edge index to be start from 0
-    #                 unique_nodes = torch.unique(subdomain)
-    #                 node_map = dict(zip(unique_nodes.numpy(), range(unique_nodes.size(0))))
-    #                 edge_index = torch.tensor([[node_map[edge[0].item()] for edge in subdomain.t()], [node_map[edge[1].item()] for edge in subdomain.t()]], dtype=torch.long)
-    #                 edge_index = edge_index.view(2, -1)
-    #                 subdomain = Data(x=data.x[mask], pos=data.pos[mask], y=data.y[mask], edge_index=edge_index, edge_attr=edge_attr, global_node_id=unique_nodes)
-    #                 # subdomain = Data(x=data.x[mask], pos=data.pos[mask], y=data.y[mask], edge_index=subdomain, edge_attr=edge_attr)
-    #                 subdomains.append(subdomain)
-    #                 # print('subdomain created')
-    #                 # subdomain_count += 1
-
-    #     print('subdomain count: ', len(subdomains))
-
-    #     return subdomains
-
-    def _get_partition_domain(self, data, sub_size=0.001):
-        # vectorized implementation of the previous function
-        subdomains = []
-        # get domain geometry bounds
-        x_min, x_max = data.pos[:, 0].min(), data.pos[:, 0].max()
-        y_min, y_max = data.pos[:, 1].min(), data.pos[:, 1].max()
-        z_min, z_max = data.pos[:, 2].min(), data.pos[:, 2].max()
-        # temporary fix to the device issue
-        # data.edge_index = torch.Tensor(data.edge_index)
-        print('x range: ', x_min, x_max)
-        print('y range: ', y_min, y_max)
-        print('z range: ', z_min, z_max)
-        print('sub_size: ', sub_size)
-
-        x_coords = torch.arange(x_min, x_max, sub_size)
-        y_coords = torch.arange(y_min, y_max, sub_size)
-        z_coords = torch.arange(z_min, z_max, sub_size)
-        grid_x, grid_y, grid_z = torch.meshgrid(x_coords, y_coords, z_coords)
-        grid_x = grid_x.flatten()
-        grid_y = grid_y.flatten()
-        grid_z = grid_z.flatten()
-        grid = torch.stack([grid_x, grid_y, grid_z], dim=-1).view(-1, 3)
-
-        # find nodes within the subdomain
-        # for x, y, z in grid:
-        #     mask = (data.pos[:, 0] >= x) & (data.pos[:, 0] < x + sub_size) & \
-        #         (data.pos[:, 1] >= y) & (data.pos[:, 1] < y + sub_size) & \
-        #         (data.pos[:, 2] >= z) & (data.pos[:, 2] < z + sub_size)
-        #     if mask.unique().size(0) == 1:
-        #         continue
-        #     else:
-        #         subdomain, _ = subgraph(mask, data.edge_index)
-
-        #     # check if nan exists in the subdomain
-        #     if torch.isnan(data.x[mask]).sum() > 0:
-        #         print('nan exists')
-        #         continue
-
-        #     edge_attr = torch.norm(data.pos[subdomain[0]] - data.pos[subdomain[1]], dim=1).unsqueeze(1)
-        #     # reorganize edge index to be start from 0
-        #     unique_nodes = torch.unique(subdomain)
-        #     node_map = dict(zip(unique_nodes.numpy(), range(unique_nodes.size(0))))
-        #     edge_index = torch.tensor([[node_map[edge[0].item()] for edge in subdomain.t()], [node_map[edge[1].item()] for edge in subdomain.t()]], dtype=torch.long)
-        #     edge_index = edge_index.view(2, -1)
-        #     subdomain = Data(x=data.x[mask], pos=data.pos[mask], y=data.y[mask], edge_index=edge_index, edge_attr=edge_attr, global_node_id=unique_nodes)
-        #     subdomains.append(subdomain)
-
-        # print('subdomain count: ', len(subdomains))
-        
-        # parallelize the process
-        with ThreadPoolExecutor() as executor:
-            futures = [executor.submit(DuctAnalysisDataset.get_subdomain, data, sub_size, x, y, z) for x, y, z in grid]
-            wait(futures, return_when=ALL_COMPLETED)
-            for future in futures:
-                subdomain = future.result()
-                if subdomain is not None:
-                    subdomains.append(subdomain)
-
+            torch.save(subdomains, os.path.join(self.root, 'partition', 'data.pt'))
         return subdomains
-    
+
+
     @staticmethod
-    def get_subdomain(data, sub_size, x, y, z):
-        mask = (data.pos[:, 0] >= x) & (data.pos[:, 0] < x + sub_size) & \
-            (data.pos[:, 1] >= y) & (data.pos[:, 1] < y + sub_size) & \
-            (data.pos[:, 2] >= z) & (data.pos[:, 2] < z + sub_size)
-        if mask.unique().size(0) == 1:
-            return None
-        # if number of points inside the subdomain is less than 4, return a fully connected graph locally
-        if mask.sum() <= 4:
-            # subdomain = torch.combinations(torch.where(mask)[0], with_replacement=False).t()
-            # subdomain = torch.tensor(subdomain, dtype=torch.long)
-            # edge_attr = torch.norm(data.pos[subdomain[0]] - data.pos[subdomain[1]], dim=1).unsqueeze(1)
-            # subdomain = Data(x=data.x[mask][:, 0].unsqueeze(-1), pos=data.pos[mask], y=data.y[mask][:, 0].unsqueeze(-1), edge_index=subdomain, edge_attr=edge_attr, global_node_id=torch.where(mask)[0])
-            # return subdomain
-            return None
-        # else:
-        #     subdomain, _ = subgraph(mask, data.edge_index)
-        edge_index = []
-        # check if nan exists in the subdomain
-        if torch.isnan(data.x[mask]).sum() > 0:
-            print('nan exists')
-            return None
+    def _get_partition_domain(mesh, x, y, pos, num_subdomains):
+        """
+        Perform domain decomposition on a VTK unstructured mesh and associated physics data.
+        Uses METIS-based partitioning without explicit graph conversion.
 
-        # edge_attr = torch.norm(data.pos[subdomain[0]] - data.pos[subdomain[1]], dim=1).unsqueeze(1)
-        # reorganize edge index to be start from 0
-        # unique_nodes = torch.unique(subdomain)
-        # node_map = dict(zip(unique_nodes.numpy(), range(unique_nodes.size(0))))
-        # edge_index = torch.tensor([[node_map[edge[0].item()] for edge in subdomain.t()], [node_map[edge[1].item()] for edge in subdomain.t()]], dtype=torch.long)
-        # edge_index = edge_index.view(2, -1)
-        # rebuild edge index with delaunay triangulation
-        cells = torch.tensor(Delaunay(data.pos[mask]).simplices, dtype=torch.long)
-        # get mapping from global node id to local node id
-        unique_nodes = torch.unique(cells)
-        global_id = np.where(mask)[0]
-        # node_map = dict(zip(global_id, range(global_id.size)))
+        Args:
+            mesh (vtkUnstructuredGrid): The unstructured mesh to be partitioned.
+            physics (np.ndarray): Physics properties at mesh nodes, shape (num_points, physics_dim).
+            num_subdomains (int): The number of decomposed subdomains.
 
-        for cell in cells:
-            for i in range(cell.shape[0]):
-                edge_index.append([cell[i], cell[(i + 1) % cell.shape[0]]])
-                edge_index.append([cell[(i + 1) % cell.shape[0]], cell[i]])
-        edge_index = torch.tensor(edge_index).t().contiguous().view(2, -1)
-        edge_attr = torch.norm(data.pos[global_id[edge_index[0]]] - data.pos[global_id[edge_index[1]]], dim=1).unsqueeze(1)
-        
-        subdomain = Data(x=data.x[mask][:, 0].unsqueeze(-1), pos=data.pos[mask], y=data.y[mask][:, 0].unsqueeze(-1), edge_index=edge_index, edge_attr=edge_attr, global_node_id=unique_nodes)
-        return subdomain
+        Returns:
+            subdomain_meshes (list of vtkUnstructuredGrid): Decomposed sub-meshes.
+            subdomain_physics (list of np.ndarray): Physics properties for each subdomain.
+        """
+        num_points = mesh.GetNumberOfPoints()
+        num_cells = mesh.GetNumberOfCells()
+
+        if num_points == 0 or num_cells == 0:
+            raise ValueError("The input mesh is empty.")
+
+        if x.shape[0] != num_points:
+            raise ValueError("Mismatch: physics array length must match the number of points in the mesh.")
+
+        # Step 1: Compute cell centroids
+        cell_centroids = np.zeros((num_cells, 3))
+        for i in range(num_cells):
+            cell = mesh.GetCell(i)
+            num_cell_points = cell.GetNumberOfPoints()
+            centroid = np.mean([mesh.GetPoint(cell.GetPointId(j)) for j in range(num_cell_points)], axis=0)
+            cell_centroids[i] = centroid
+
+        # Step 2: Select initial cluster centers using k-means++ style sampling
+        initial_centers = [random.randint(0, num_cells - 1)]  # Start with a random cell
+        for _ in range(1, num_subdomains):
+            dists = np.min([np.linalg.norm(cell_centroids - cell_centroids[c], axis=1) for c in initial_centers], axis=0)
+            new_center = np.argmax(dists)  # Choose the farthest point
+            initial_centers.append(new_center)
+
+        # Step 3: Region Growing using BFS
+        cell_labels = -np.ones(num_cells, dtype=int)  # -1 means unassigned
+        frontier = {i: deque([c]) for i, c in enumerate(initial_centers)}
+
+        for i, c in enumerate(initial_centers):
+            cell_labels[c] = i  # Assign initial centers
+
+        # Build cell adjacency list
+        cell_adjacency = {i: set() for i in range(num_cells)}
+
+        for i in range(num_cells):
+            cell = mesh.GetCell(i)
+            for j in range(cell.GetNumberOfPoints()):
+                point_id = cell.GetPointId(j)
+                for k in range(num_cells):
+                    if k == i:
+                        continue
+                    if point_id in [mesh.GetCell(k).GetPointId(m) for m in range(mesh.GetCell(k).GetNumberOfPoints())]:
+                        cell_adjacency[i].add(k)
+
+        # Grow clusters until all cells are assigned
+        while any(len(q) > 0 for q in frontier.values()):
+            for i in range(num_subdomains):
+                if frontier[i]:
+                    current_cell = frontier[i].popleft()
+                    for neighbor in cell_adjacency[current_cell]:
+                        if cell_labels[neighbor] == -1:  # Unassigned cell
+                            cell_labels[neighbor] = i
+                            frontier[i].append(neighbor)
+
+        # Step 4: Extract Sub-Meshes and Physics Data
+        subdomain_dataset = []
+
+        for i in range(num_subdomains):
+            submesh = vtk.vtkUnstructuredGrid()
+            sub_points = vtk.vtkPoints()
+            sub_cells = vtk.vtkCellArray()
+
+            point_map = {}  # Map original point IDs to new submesh point IDs
+            sub_x = []
+            sub_y = []
+            sub_pos = []
+
+            for cell_id in range(num_cells):
+                if cell_labels[cell_id] == i:
+                    cell = mesh.GetCell(cell_id)
+                    new_cell_points = []
+
+                    for j in range(cell.GetNumberOfPoints()):
+                        point_id = cell.GetPointId(j)
+                        if point_id not in point_map:
+                            new_id = sub_points.InsertNextPoint(mesh.GetPoint(point_id))
+                            point_map[point_id] = new_id
+                            sub_x.append(x[point_id])
+                            sub_y.append(y[point_id])
+                            sub_pos.append(pos[point_id])
+
+                        new_cell_points.append(point_map[point_id])
+
+                    # Create VTK cell and add to the submesh
+                    sub_cells.InsertNextCell(len(new_cell_points), new_cell_points)
+
+            submesh.SetPoints(sub_points)
+            submesh.SetCells(mesh.GetCellType(0), sub_cells)
+
+
+            subdomain_data = DuctAnalysisDataset.vtk_to_pyg(submesh)
+            subdomain_data.x = torch.tensor(sub_x, dtype=torch.float).squeeze(1)
+            subdomain_data.y = torch.tensor(sub_y, dtype=torch.float).squeeze(1)
+            subdomain_data.pos = torch.tensor(sub_pos, dtype=torch.float).squeeze(1)
+
+            subdomain_dataset.append(subdomain_data)
+
+        return subdomain_dataset
     
     @staticmethod
     def reconstruct_from_partition(subdomains):
@@ -696,21 +668,21 @@ class DuctAnalysisDataset(GenericGraphDataset):
         pos = torch.cat([subdomain.pos for subdomain in subdomains], dim=0)
         pos = pos[global_node_id]
         # arrange data.edge_index of subdomains according to the global node id
-        edge_index = torch.cat([subdomain.edge_index for subdomain in subdomains], dim=1)
-        edge_index = edge_index[:, edge_index[0].argsort()]
-        edge_index = edge_index[:, edge_index[1].argsort()]
-        edge_index = edge_index[:, edge_index[0] != -1]
-        edge_index = edge_index[:, edge_index[1] != -1]
-        edge_index = edge_index[:, edge_index[0] != edge_index[1]]
-        # arrange data.edge_attr of subdomains according to the global node id
-        edge_attr = torch.cat([subdomain.edge_attr for subdomain in subdomains], dim=0)
-        edge_attr = edge_attr[edge_index[0]]
+        # edge_index = torch.cat([subdomain.edge_index for subdomain in subdomains], dim=1)
+        # edge_index = edge_index[:, edge_index[0].argsort()]
+        # edge_index = edge_index[:, edge_index[1].argsort()]
+        # edge_index = edge_index[:, edge_index[0] != -1]
+        # edge_index = edge_index[:, edge_index[1] != -1]
+        # edge_index = edge_index[:, edge_index[0] != edge_index[1]]
+        # # arrange data.edge_attr of subdomains according to the global node id
+        # edge_attr = torch.cat([subdomain.edge_attr for subdomain in subdomains], dim=0)
+        # edge_attr = edge_attr[edge_index[0]]
         
         data.x = x
         data.y = y
         data.pos = pos
-        data.edge_index = edge_index
-        data.edge_attr = edge_attr
+        # data.edge_index = edge_index
+        # data.edge_attr = edge_attr
 
         return data
     

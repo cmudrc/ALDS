@@ -15,8 +15,9 @@ import torch_geometric as pyg
 from torch_geometric.data import Data, InMemoryDataset
 # from torch_geometric.loader import DataLoader
 from torch_geometric.utils import subgraph
-from scipy.spatial import Delaunay, KDTree 
+from sklearn.cluster import KMeans
 import multiprocessing as mp
+from tqdm import tqdm
 
 
 class GenericGraphDataset(InMemoryDataset):
@@ -530,7 +531,6 @@ class DuctAnalysisDataset(GenericGraphDataset):
             torch.save(subdomains, os.path.join(self.root, 'partition', 'data.pt'))
         return subdomains
 
-
     @staticmethod
     def _get_partition_domain(mesh, x, y, pos, num_subdomains):
         """
@@ -563,12 +563,14 @@ class DuctAnalysisDataset(GenericGraphDataset):
             centroid = np.mean([mesh.GetPoint(cell.GetPointId(j)) for j in range(num_cell_points)], axis=0)
             cell_centroids[i] = centroid
 
-        # Step 2: Select initial cluster centers using k-means++ style sampling
-        initial_centers = [random.randint(0, num_cells - 1)]  # Start with a random cell
-        for _ in range(1, num_subdomains):
-            dists = np.min([np.linalg.norm(cell_centroids - cell_centroids[c], axis=1) for c in initial_centers], axis=0)
-            new_center = np.argmax(dists)  # Choose the farthest point
-            initial_centers.append(new_center)
+        # Step 2: Select initial cluster centers using K-Means
+        kmeans = KMeans(n_clusters=num_subdomains, init="k-means++", n_init=10, random_state=42)
+        cluster_labels = kmeans.fit_predict(cell_centroids)
+        initial_centers = []
+        for i in range(num_subdomains):
+            cluster_points = np.where(cluster_labels == i)[0]
+            center = cluster_points[random.randint(0, len(cluster_points) - 1)]  # Pick a representative from the cluster
+            initial_centers.append(center)
 
         # Step 3: Region Growing using BFS
         cell_labels = -np.ones(num_cells, dtype=int)  # -1 means unassigned
@@ -590,20 +592,23 @@ class DuctAnalysisDataset(GenericGraphDataset):
                     if point_id in [mesh.GetCell(k).GetPointId(m) for m in range(mesh.GetCell(k).GetNumberOfPoints())]:
                         cell_adjacency[i].add(k)
 
-        # Grow clusters until all cells are assigned
-        while any(len(q) > 0 for q in frontier.values()):
-            for i in range(num_subdomains):
-                if frontier[i]:
-                    current_cell = frontier[i].popleft()
-                    for neighbor in cell_adjacency[current_cell]:
-                        if cell_labels[neighbor] == -1:  # Unassigned cell
-                            cell_labels[neighbor] = i
-                            frontier[i].append(neighbor)
+        # Function to grow a region using BFS
+        def grow_region(i):
+            while frontier[i]:
+                current_cell = frontier[i].popleft()
+                for neighbor in cell_adjacency[current_cell]:
+                    if cell_labels[neighbor] == -1:  # Unassigned cell
+                        cell_labels[neighbor] = i
+                        frontier[i].append(neighbor)
+
+        # Parallel execution of region growing
+        with ThreadPoolExecutor(max_workers=num_subdomains) as executor:
+            list(tqdm(executor.map(grow_region, range(num_subdomains)), total=num_subdomains, desc="Partitioning Progress"))
 
         # Step 4: Extract Sub-Meshes and Physics Data
         subdomain_dataset = []
 
-        for i in range(num_subdomains):
+        for i in tqdm(range(num_subdomains), desc="Extracting Subdomains"):
             submesh = vtk.vtkUnstructuredGrid()
             sub_points = vtk.vtkPoints()
             sub_cells = vtk.vtkCellArray()

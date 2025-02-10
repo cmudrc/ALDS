@@ -581,17 +581,10 @@ class DuctAnalysisDataset(GenericGraphDataset):
             cell_labels[c] = i  # Assign initial centers
 
         # Build cell adjacency list
-        cell_adjacency = {i: set() for i in range(num_cells)}
-
-        for i in range(num_cells):
-            cell = mesh.GetCell(i)
-            for j in range(cell.GetNumberOfPoints()):
-                point_id = cell.GetPointId(j)
-                for k in range(num_cells):
-                    if k == i:
-                        continue
-                    if point_id in [mesh.GetCell(k).GetPointId(m) for m in range(mesh.GetCell(k).GetNumberOfPoints())]:
-                        cell_adjacency[i].add(k)
+        # Build cell adjacency list using cKDTree for efficient neighbor search
+        kdtree = KDTree(cell_centroids)
+        _, nearest_neighbors = kdtree.query(cell_centroids, k=10)  # Adjust k for different adjacency structures
+        cell_adjacency = {i: set(nearest_neighbors[i]) for i in range(num_cells)}
 
         # Function to grow a region using BFS
         def grow_region(i):

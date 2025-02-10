@@ -531,9 +531,39 @@ class DuctAnalysisDataset(GenericGraphDataset):
 
             torch.save(subdomains, os.path.join(self.root, 'partition', 'data.pt'))
         return subdomains
-
+    
     @staticmethod
-    def _get_partition_domain(mesh, x, y, pos, num_subdomains):
+    def compute_cell_centroids(mesh):
+        """
+        Computes the centroids of all cells in the VTK unstructured mesh using parallel processing.
+
+        Args:
+            mesh (vtk.vtkUnstructuredGrid): The input unstructured mesh.
+
+        Returns:
+            np.ndarray: Shape (num_cells, 3), array of cell centroids.
+        """
+        num_cells = mesh.GetNumberOfCells()
+        centroids = np.zeros((num_cells, 3), dtype=np.float32)
+
+        def compute_centroid(cell_id):
+            """Computes the centroid for a given cell."""
+            cell = mesh.GetCell(cell_id)
+            num_cell_points = cell.GetNumberOfPoints()
+            centroid = np.mean([mesh.GetPoint(cell.GetPointId(j)) for j in range(num_cell_points)], axis=0)
+            return cell_id, centroid
+
+        # Parallel execution
+        with ThreadPoolExecutor() as executor:
+            results = list(tqdm(executor.map(compute_centroid, range(num_cells)), total=num_cells, desc="Computing Centroids"))
+
+        # Store results
+        for cell_id, centroid in results:
+            centroids[cell_id] = centroid
+
+        return centroids
+
+    def _get_partition_domain(self, mesh, x, y, pos, num_subdomains):
         """
         Perform domain decomposition on a VTK unstructured mesh and associated physics data.
         Uses METIS-based partitioning without explicit graph conversion.
@@ -557,12 +587,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
             raise ValueError("Mismatch: physics array length must match the number of points in the mesh.")
 
         # Step 1: Compute cell centroids
-        cell_centroids = np.zeros((num_cells, 3))
-        for i in range(num_cells):
-            cell = mesh.GetCell(i)
-            num_cell_points = cell.GetNumberOfPoints()
-            centroid = np.mean([mesh.GetPoint(cell.GetPointId(j)) for j in range(num_cell_points)], axis=0)
-            cell_centroids[i] = centroid
+        cell_centroids = self.compute_cell_centroids(mesh)
 
         # Step 2: Select initial cluster centers using K-Means
         kmeans = KMeans(n_clusters=num_subdomains, init="k-means++", n_init=2, random_state=42, verbose=1)
@@ -635,7 +660,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
             submesh.SetCells(mesh.GetCellType(0), sub_cells)
 
 
-            subdomain_data = DuctAnalysisDataset.vtk_to_pyg(submesh)
+            subdomain_data = self.vtk_to_pyg(submesh)
             subdomain_data.x = torch.tensor(sub_x, dtype=torch.float).squeeze(1)
             subdomain_data.y = torch.tensor(sub_y, dtype=torch.float).squeeze(1)
             subdomain_data.pos = torch.tensor(sub_pos, dtype=torch.float).squeeze(1)

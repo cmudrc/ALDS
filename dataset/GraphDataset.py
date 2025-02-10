@@ -1,16 +1,18 @@
 import os
 import meshio
 # os.environ['HDF5_DISABLE_VERSION_CHECK'] = '2' # Only add this for TRACE to work, comment out for other cases! 
-
+import time
 import torch
 import numpy as np
 import random
+import tqdm
 import vtk
 from vtk import vtkFLUENTReader
 from collections import deque
 import pandas as pd
 # import multiprocessing as mp
-from concurrent.futures import ProcessPoolExecutor, wait, ALL_COMPLETED
+from multiprocessing import Manager, Process
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import torch_geometric as pyg
 from torch_geometric.data import Data, InMemoryDataset
 # from torch_geometric.loader import DataLoader
@@ -18,7 +20,6 @@ from torch_geometric.utils import subgraph
 from scipy.spatial import KDTree
 from sklearn.cluster import KMeans
 import multiprocessing as mp
-from tqdm import tqdm
 
 
 class GenericGraphDataset(InMemoryDataset):
@@ -533,10 +534,39 @@ class DuctAnalysisDataset(GenericGraphDataset):
         return subdomains
     
     @staticmethod
-    def compute_cell_centroids(mesh, chunk_size=10000):
+    def compute_centroid_chunk(mesh, cell_ids, progress_dict, process_id):
+        """Computes the centroids for a chunk of cells."""
+        chunk_results = []
+        for idx, cell_id in enumerate(cell_ids):
+            cell = mesh.GetCell(cell_id)
+            num_cell_points = cell.GetNumberOfPoints()
+            centroid = np.mean([mesh.GetPoint(cell.GetPointId(j)) for j in range(num_cell_points)], axis=0)
+            chunk_results.append((cell_id, centroid))
+            
+            # Update progress every 100 cells
+            if idx % 100 == 0:
+                progress_dict[process_id] = idx
+
+        return chunk_results
+    
+    @staticmethod
+    def progress_monitor(progress_dict, num_chunks):
+        """Monitors the progress of parallel processing."""
+        start_time = time.time()
+        while True:
+            completed = sum(progress_dict.values())
+            elapsed_time = time.time() - start_time
+            eta = (elapsed_time / completed) * (num_chunks * 10000 - completed) if completed > 0 else 0
+            print(f"\rProgress: {completed}/{num_chunks * 10000} cells processed - Time elapsed: {elapsed_time:.2f}s - ETA: {eta:.2f}s", end="")
+            time.sleep(2)  # Update every 2 seconds
+            if completed >= num_chunks * 10000:
+                break
+        print("\nProcessing complete!")
+    
+    def compute_cell_centroids(self, mesh, chunk_size=10000):
         """
         Computes the centroids of all cells in the VTK unstructured mesh using multiprocessing.
-
+        
         Args:
             mesh (vtk.vtkUnstructuredGrid): The input unstructured mesh.
             chunk_size (int): Number of cells to process per batch to reduce memory load.
@@ -546,34 +576,36 @@ class DuctAnalysisDataset(GenericGraphDataset):
         """
         num_cells = mesh.GetNumberOfCells()
         centroids = np.zeros((num_cells, 3), dtype=np.float32)
-
-        def compute_centroid_chunk(cell_ids):
-            """Computes the centroids for a chunk of cells."""
-            chunk_results = []
-            for cell_id in cell_ids:
-                cell = mesh.GetCell(cell_id)
-                num_cell_points = cell.GetNumberOfPoints()
-                centroid = np.mean([mesh.GetPoint(cell.GetPointId(j)) for j in range(num_cell_points)], axis=0)
-                chunk_results.append((cell_id, centroid))
-            return chunk_results
-
         cell_ids = list(range(num_cells))
-        print(f"Computing centroids for {num_cells} cells...")
-        # Parallel execution with chunking
-        with ProcessPoolExecutor(max_workers=os.cpu_count) as executor:
-            results = list(tqdm(
-                executor.map(compute_centroid_chunk, [cell_ids[i:i + chunk_size] for i in range(0, num_cells, chunk_size)]),
-                total=(num_cells // chunk_size) + 1,
-                desc="Computing Centroids"
-            ))
+        num_chunks = (num_cells // chunk_size) + 1
+        max_workers = os.cpu_count() - 1
 
-        # Flatten results and store
-        for chunk in results:
-            for cell_id, centroid in chunk:
-                centroids[cell_id] = centroid
+        # Shared dictionary to track progress
+        with Manager() as manager:
+            progress_dict = manager.dict({i: 0 for i in range(num_chunks)})
+
+            # Start progress monitor in a separate process
+            monitor_process = Process(target=self.progress_monitor, args=(progress_dict, num_chunks))
+            monitor_process.start()
+
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(self.compute_centroid_chunk, mesh, cell_ids[i:i + chunk_size], progress_dict, i): i
+                    for i in range(0, num_cells, chunk_size)
+                }
+
+                for future in as_completed(futures):  # Dynamically process completed tasks
+                    chunk_index = futures[future]
+                    try:
+                        chunk_results = future.result()
+                        for cell_id, centroid in chunk_results:
+                            centroids[cell_id] = centroid
+                    except Exception as e:
+                        print(f"Error processing chunk {chunk_index}: {e}")
+
+            monitor_process.join()  # Wait for progress monitoring to complete
 
         return centroids
-
 
     def _get_partition_domain(self, mesh, x, y, pos, num_subdomains):
         """

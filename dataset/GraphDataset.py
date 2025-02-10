@@ -550,16 +550,16 @@ class DuctAnalysisDataset(GenericGraphDataset):
         return chunk_results
     
     @staticmethod
-    def progress_monitor(progress_dict, num_chunks):
+    def progress_monitor(progress_dict, total_cells):
         """Monitors the progress of parallel processing."""
         start_time = time.time()
         while True:
             completed = sum(progress_dict.values())
             elapsed_time = time.time() - start_time
-            eta = (elapsed_time / completed) * (num_chunks * 10000 - completed) if completed > 0 else 0
-            print(f"\rProgress: {completed}/{num_chunks * 10000} cells processed - Time elapsed: {elapsed_time:.2f}s - ETA: {eta:.2f}s", end="")
+            eta = (elapsed_time / completed) * (total_cells - completed) if completed > 0 else 0
+            print(f"\rProgress: {completed}/{total_cells} cells processed - Time elapsed: {elapsed_time:.2f}s - ETA: {eta:.2f}s", end="")
             time.sleep(2)  # Update every 2 seconds
-            if completed >= num_chunks * 10000:
+            if completed >= total_cells:
                 break
         print("\nProcessing complete!")
     
@@ -585,7 +585,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
             progress_dict = manager.dict({i: 0 for i in range(num_chunks)})
 
             # Start progress monitor in a separate process
-            monitor_process = Process(target=self.progress_monitor, args=(progress_dict, num_chunks))
+            monitor_process = Process(target=self.progress_monitor, args=(progress_dict, num_cells))
             monitor_process.start()
 
             with ProcessPoolExecutor(max_workers=max_workers) as executor:

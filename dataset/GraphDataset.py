@@ -17,8 +17,7 @@ import torch_geometric as pyg
 from torch_geometric.data import Data, InMemoryDataset
 # from torch_geometric.loader import DataLoader
 from torch_geometric.utils import subgraph
-from scipy.spatial import KDTree
-from sklearn.cluster import KMeans
+import h5py
 import multiprocessing as mp
 
 
@@ -295,6 +294,7 @@ class CoronaryArteryDataset(GenericGraphDataset):
 class DuctAnalysisDataset(GenericGraphDataset):
     def __init__(self, root, transform=None, pre_transform=None, partition=False, **kwargs):
         super(DuctAnalysisDataset, self).__init__(root, transform, pre_transform, partition, **kwargs)
+        self.partition = partition
         # self.raw_file_names = [os.path.join(self.raw_dir, f) for f in os.listdir(self.raw_dir) if f.endswith('.mat')]
 
     def download(self):
@@ -304,7 +304,19 @@ class DuctAnalysisDataset(GenericGraphDataset):
         return len(self._data)
     
     def get(self, idx):
-        return self._data[idx]
+        if not self.partition:
+            return self._data[idx]
+        else:
+            with h5py.File(self.data, 'r') as f:
+                group = f[f'subdomain_{idx}']
+                x = torch.tensor(group['x'], dtype=torch.float)
+                y = torch.tensor(group['y'], dtype=torch.float)
+                pos = torch.tensor(group['pos'], dtype=torch.float)
+                edge_index = torch.tensor(group['edge_index'], dtype=torch.long)
+                edge_attr = torch.tensor(group['edge_attr'], dtype=torch.float)
+
+                data = Data(x=x, y=y, pos=pos, edge_index=edge_index, edge_attr=edge_attr)
+                return data
 
     @property
     def raw_file_names(self):
@@ -360,7 +372,11 @@ class DuctAnalysisDataset(GenericGraphDataset):
 
         # Step 2: Extract edges from cell connectivity
         edge_set = set()
+        # print warning if no cell is found
+        if data.GetNumberOfCells() == 0:
+            raise ValueError("No valid mesh data found in the given mesh.")
         for i in range(data.GetNumberOfCells()):
+            # print warning if no cell is found
             cell = data.GetCell(i)
             num_cell_points = cell.GetNumberOfPoints()
 
@@ -518,7 +534,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
         :param data: the original domain stored in a torch_geometric.data.Data object. 
         """
         if os.path.exists(os.path.join(self.root, 'partition', 'data.pt')):
-            subdomains = torch.load(os.path.join(self.root, 'partition', 'data.pt'), map_location=torch.device('cpu'))
+            h5_file = h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'r')
         else:
             os.makedirs(os.path.join(self.root, 'partition'), exist_ok=True)
             reader = vtkFLUENTReader()
@@ -528,85 +544,10 @@ class DuctAnalysisDataset(GenericGraphDataset):
             data = data[0]
             x, y, pos = data.x, data.y, data.pos
             num_subdomains = self.sub_size
-            subdomains = self._get_partition_domain(mesh, x, y, pos, num_subdomains)
-
-            torch.save(subdomains, os.path.join(self.root, 'partition', 'data.pt'))
-        return subdomains
+            self._get_partition_domain(mesh, x, y, pos, num_subdomains)
+            h5_file = h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'r')
+        return h5_file
     
-    @staticmethod
-    def compute_centroid_chunk(mesh, cell_ids, progress_dict, process_id):
-        """Computes the centroids for a chunk of cells."""
-        chunk_results = []
-        for idx, cell_id in enumerate(cell_ids):
-            cell = mesh.GetCell(cell_id)
-            num_cell_points = cell.GetNumberOfPoints()
-            centroid = np.mean([mesh.GetPoint(cell.GetPointId(j)) for j in range(num_cell_points)], axis=0)
-            chunk_results.append((cell_id, centroid))
-            
-            # Update progress every 100 cells
-            if idx % 100 == 0:
-                progress_dict[process_id] = idx
-
-        return chunk_results
-    
-    @staticmethod
-    def progress_monitor(progress_dict, total_cells):
-        """Monitors the progress of parallel processing."""
-        start_time = time.time()
-        while True:
-            completed = sum(progress_dict.values())
-            elapsed_time = time.time() - start_time
-            eta = (elapsed_time / completed) * (total_cells - completed) if completed > 0 else 0
-            print(f"\rProgress: {completed}/{total_cells} cells processed - Time elapsed: {elapsed_time:.2f}s - ETA: {eta:.2f}s", end="")
-            time.sleep(2)  # Update every 2 seconds
-            if completed >= total_cells:
-                break
-        print("\nProcessing complete!")
-    
-    def compute_cell_centroids(self, mesh, chunk_size=10000):
-        """
-        Computes the centroids of all cells in the VTK unstructured mesh using multiprocessing.
-        
-        Args:
-            mesh (vtk.vtkUnstructuredGrid): The input unstructured mesh.
-            chunk_size (int): Number of cells to process per batch to reduce memory load.
-
-        Returns:
-            np.ndarray: Shape (num_cells, 3), array of cell centroids.
-        """
-        num_cells = mesh.GetNumberOfCells()
-        centroids = np.zeros((num_cells, 3), dtype=np.float32)
-        cell_ids = list(range(num_cells))
-        num_chunks = (num_cells // chunk_size) + 1
-        max_workers = os.cpu_count() - 1
-
-        # Shared dictionary to track progress
-        with Manager() as manager:
-            progress_dict = manager.dict({i: 0 for i in range(num_chunks)})
-
-            # Start progress monitor in a separate process
-            monitor_process = Process(target=self.progress_monitor, args=(progress_dict, num_cells))
-            monitor_process.start()
-
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                futures = {
-                    executor.submit(self.compute_centroid_chunk, mesh, cell_ids[i:i + chunk_size], progress_dict, i): i
-                    for i in range(0, num_cells, chunk_size)
-                }
-
-                for future in as_completed(futures):  # Dynamically process completed tasks
-                    chunk_index = futures[future]
-                    try:
-                        chunk_results = future.result()
-                        for cell_id, centroid in chunk_results:
-                            centroids[cell_id] = centroid
-                    except Exception as e:
-                        print(f"Error processing chunk {chunk_index}: {e}")
-
-            monitor_process.join()  # Wait for progress monitoring to complete
-
-        return centroids
-
     def _get_partition_domain(self, mesh, x, y, pos, num_subdomains):
         """
         Perform domain decomposition on a VTK unstructured mesh and associated physics data.
@@ -628,12 +569,11 @@ class DuctAnalysisDataset(GenericGraphDataset):
             controller = vtk.vtkDummyController()
 
         # Set up the distributed data filter
-        distributed_filter = vtk.vtkDistributedDataFilter()
+        distributed_filter = vtk.vtkRedistributeDataSetFilter()
         distributed_filter.SetController(controller)
         distributed_filter.SetInputData(mesh)
         # set up the number of partitions
-        kd_tree = distributed_filter.GetKdtree()
-        kd_tree.SetNumberOfRegionsOrLess(num_subdomains)
+        distributed_filter.SetNumberOfPartitions(num_subdomains)
         progress_observer = ProgressObserver()
         distributed_filter.AddObserver(vtk.vtkCommand.ProgressEvent, progress_observer)
         distributed_filter.SetBoundaryModeToAssignToAllIntersectingRegions()
@@ -644,31 +584,37 @@ class DuctAnalysisDataset(GenericGraphDataset):
         # Retrieve partitioned mesh
         partitioned_mesh = distributed_filter.GetOutput()
 
-        subdomain_dataset = []
-        for i in tqdm.tqdm(range(num_subdomains), desc="Processing Subdomains"):
-            threshold = vtk.vtkThreshold()
-            threshold.SetInputData(partitioned_mesh)
-            threshold.SetUpperThreshold(i)
-            threshold.SetLowerThreshold(i)
-            threshold.Update()
+        controller.Finalize()
 
-            geometry_filter = vtk.vtkGeometryFilter()
-            geometry_filter.SetInputData(threshold.GetOutput())
-            geometry_filter.Update()
+        with h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'w') as f:
+            for i in tqdm.tqdm(range(num_subdomains), desc="Processing Subdomains"):
+                threshold = vtk.vtkThreshold()
+                threshold.SetInputData(partitioned_mesh)
+                threshold.SetUpperThreshold(i)
+                threshold.SetLowerThreshold(i)
+                threshold.Update()
 
-            submesh = geometry_filter.GetOutput()
-            sub_x = x[threshold.GetOutput().GetPointData().GetArray('GlobalNodeID')]
-            sub_y = y[threshold.GetOutput().GetPointData().GetArray('GlobalNodeID')]
-            sub_pos = pos[threshold.GetOutput().GetPointData().GetArray('GlobalNodeID')]
+                geometry_filter = vtk.vtkGeometryFilter()
+                geometry_filter.SetInputData(threshold.GetOutput())
+                geometry_filter.Update()
 
-            subdomain_data = self.vtk_to_pyg(submesh)
-            subdomain_data.x = torch.tensor(sub_x, dtype=torch.float).squeeze(1)
-            subdomain_data.y = torch.tensor(sub_y, dtype=torch.float).squeeze(1)
-            subdomain_data.pos = torch.tensor(sub_pos, dtype=torch.float).squeeze(1)
+                submesh = geometry_filter.GetOutput()
+                sub_x = x[threshold.GetOutput().GetPointData().GetArray('GlobalNodeID')]
+                sub_y = y[threshold.GetOutput().GetPointData().GetArray('GlobalNodeID')]
+                sub_pos = pos[threshold.GetOutput().GetPointData().GetArray('GlobalNodeID')]
 
-            subdomain_dataset.append(subdomain_data)
+                subdomain_data = self.vtk_to_pyg(submesh)
+                # set edge_attr as edge length
+                edge_attr = np.linalg.norm(sub_pos[subdomain_data.edge_index[0]] - sub_pos[subdomain_data.edge_index[1]], axis=1)
 
-        return subdomain_dataset
+                group = f.create_group(f'subdomain_{i}')
+                group.create_dataset('x', data=sub_x)
+                group.create_dataset('y', data=sub_y)
+                group.create_dataset('pos', data=sub_pos)
+                group.create_dataset('edge_index', data=subdomain_data.edge_index.numpy())
+                group.create_dataset('edge_attr', data=edge_attr)
+
+        print("Partitioning complete.")
     
     @staticmethod
     def reconstruct_from_partition(subdomains):

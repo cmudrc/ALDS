@@ -621,88 +621,45 @@ class DuctAnalysisDataset(GenericGraphDataset):
             subdomain_meshes (list of vtkUnstructuredGrid): Decomposed sub-meshes.
             subdomain_physics (list of np.ndarray): Physics properties for each subdomain.
         """
-        num_points = mesh.GetNumberOfPoints()
-        num_cells = mesh.GetNumberOfCells()
+        # Initialize VTK MPI controller (Required for distributed processing)
+        controller = vtk.vtkMultiProcessController.GetGlobalController()
+        if controller is None:
+            print("Error: VTK MPI controller not initialized. Using single process.")
+            controller = vtk.vtkDummyController()
 
-        if num_points == 0 or num_cells == 0:
-            raise ValueError("The input mesh is empty.")
+        # Set up the distributed data filter
+        distributed_filter = vtk.vtkDistributedDataFilter()
+        distributed_filter.SetController(controller)
+        distributed_filter.SetInputData(mesh)
+        # set up the number of partitions
+        kd_tree = distributed_filter.GetKdtree()
+        kd_tree.SetNumberOfRegionsOrLess(num_subdomains)
+        progress_observer = ProgressObserver()
+        distributed_filter.AddObserver(vtk.vtkCommand.ProgressEvent, progress_observer)
+        distributed_filter.SetBoundaryModeToAssignToAllIntersectingRegions()
 
-        if x.shape[0] != num_points:
-            raise ValueError("Mismatch: physics array length must match the number of points in the mesh.")
+        # Execute the partitioning
+        distributed_filter.Update()
 
-        # Step 1: Compute cell centroids
-        cell_centroids = self.compute_cell_centroids(mesh)
+        # Retrieve partitioned mesh
+        partitioned_mesh = distributed_filter.GetOutput()
 
-        # Step 2: Select initial cluster centers using K-Means
-        kmeans = KMeans(n_clusters=num_subdomains, init="k-means++", n_init=2, random_state=42, verbose=1)
-        cluster_labels = kmeans.fit_predict(cell_centroids)
-        initial_centers = []
-        for i in range(num_subdomains):
-            cluster_points = np.where(cluster_labels == i)[0]
-            center = cluster_points[random.randint(0, len(cluster_points) - 1)]  # Pick a representative from the cluster
-            initial_centers.append(center)
-
-        # Step 3: Region Growing using BFS
-        cell_labels = -np.ones(num_cells, dtype=int)  # -1 means unassigned
-        frontier = {i: deque([c]) for i, c in enumerate(initial_centers)}
-
-        for i, c in enumerate(initial_centers):
-            cell_labels[c] = i  # Assign initial centers
-
-        # Build cell adjacency list
-        # Build cell adjacency list using cKDTree for efficient neighbor search
-        kdtree = KDTree(cell_centroids)
-        _, nearest_neighbors = kdtree.query(cell_centroids, k=10)  # Adjust k for different adjacency structures
-        cell_adjacency = {i: set(nearest_neighbors[i]) for i in range(num_cells)}
-
-        # Function to grow a region using BFS
-        def grow_region(i):
-            while frontier[i]:
-                current_cell = frontier[i].popleft()
-                for neighbor in cell_adjacency[current_cell]:
-                    if cell_labels[neighbor] == -1:  # Unassigned cell
-                        cell_labels[neighbor] = i
-                        frontier[i].append(neighbor)
-
-        # Parallel execution of region growing
-        with ProcessPoolExecutor(max_workers=num_subdomains) as executor:
-            list(tqdm(executor.map(grow_region, range(num_subdomains)), total=num_subdomains, desc="Partitioning Progress"))
-
-        # Step 4: Extract Sub-Meshes and Physics Data
         subdomain_dataset = []
+        for i in tqdm.tqdm(range(num_subdomains), desc="Processing Subdomains"):
+            threshold = vtk.vtkThreshold()
+            threshold.SetInputData(partitioned_mesh)
+            threshold.SetUpperThreshold(i)
+            threshold.SetLowerThreshold(i)
+            threshold.Update()
 
-        for i in tqdm(range(num_subdomains), desc="Extracting Subdomains"):
-            submesh = vtk.vtkUnstructuredGrid()
-            sub_points = vtk.vtkPoints()
-            sub_cells = vtk.vtkCellArray()
+            geometry_filter = vtk.vtkGeometryFilter()
+            geometry_filter.SetInputData(threshold.GetOutput())
+            geometry_filter.Update()
 
-            point_map = {}  # Map original point IDs to new submesh point IDs
-            sub_x = []
-            sub_y = []
-            sub_pos = []
-
-            for cell_id in range(num_cells):
-                if cell_labels[cell_id] == i:
-                    cell = mesh.GetCell(cell_id)
-                    new_cell_points = []
-
-                    for j in range(cell.GetNumberOfPoints()):
-                        point_id = cell.GetPointId(j)
-                        if point_id not in point_map:
-                            new_id = sub_points.InsertNextPoint(mesh.GetPoint(point_id))
-                            point_map[point_id] = new_id
-                            sub_x.append(x[point_id])
-                            sub_y.append(y[point_id])
-                            sub_pos.append(pos[point_id])
-
-                        new_cell_points.append(point_map[point_id])
-
-                    # Create VTK cell and add to the submesh
-                    sub_cells.InsertNextCell(len(new_cell_points), new_cell_points)
-
-            submesh.SetPoints(sub_points)
-            submesh.SetCells(mesh.GetCellType(0), sub_cells)
-
+            submesh = geometry_filter.GetOutput()
+            sub_x = x[threshold.GetOutput().GetPointData().GetArray('GlobalNodeID')]
+            sub_y = y[threshold.GetOutput().GetPointData().GetArray('GlobalNodeID')]
+            sub_pos = pos[threshold.GetOutput().GetPointData().GetArray('GlobalNodeID')]
 
             subdomain_data = self.vtk_to_pyg(submesh)
             subdomain_data.x = torch.tensor(sub_x, dtype=torch.float).squeeze(1)
@@ -766,3 +723,15 @@ class SubGraphDataset(InMemoryDataset):
 
         self.data = torch.load(os.path.join(self.root, 'processed', 'data.pt'))
         self.data = [self.data[i] for i in self.indices]
+
+
+class ProgressObserver:
+    """Observer class to track VTK filter progress."""
+    def __init__(self):
+        self.progress = 0
+
+    def __call__(self, caller, event):
+        """Handles progress update events."""
+        if isinstance(caller, vtk.vtkDistributedDataFilter):
+            self.progress = caller.GetProgress() * 100
+            print(f"\rPartitioning Progress: {self.progress:.2f}%", end="")

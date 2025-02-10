@@ -558,7 +558,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
             return chunk_results
 
         cell_ids = list(range(num_cells))
-
+        print(f"Computing centroids for {num_cells} cells...")
         # Parallel execution with chunking
         with ProcessPoolExecutor(max_workers=os.cpu_count) as executor:
             results = list(tqdm(

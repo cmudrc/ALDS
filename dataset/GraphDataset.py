@@ -15,6 +15,7 @@ import torch_geometric as pyg
 from torch_geometric.data import Data, InMemoryDataset
 # from torch_geometric.loader import DataLoader
 from torch_geometric.utils import subgraph
+from scipy.spatial import KDTree
 from sklearn.cluster import KMeans
 import multiprocessing as mp
 from tqdm import tqdm
@@ -564,7 +565,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
             cell_centroids[i] = centroid
 
         # Step 2: Select initial cluster centers using K-Means
-        kmeans = KMeans(n_clusters=num_subdomains, init="k-means++", n_init=10, random_state=42)
+        kmeans = KMeans(n_clusters=num_subdomains, init="k-means++", n_init=10, random_state=42, verbose=1)
         cluster_labels = kmeans.fit_predict(cell_centroids)
         initial_centers = []
         for i in range(num_subdomains):

@@ -10,7 +10,7 @@ from vtk import vtkFLUENTReader
 from collections import deque
 import pandas as pd
 # import multiprocessing as mp
-from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
+from concurrent.futures import ProcessPoolExecutor, wait, ALL_COMPLETED
 import torch_geometric as pyg
 from torch_geometric.data import Data, InMemoryDataset
 # from torch_geometric.loader import DataLoader
@@ -533,12 +533,13 @@ class DuctAnalysisDataset(GenericGraphDataset):
         return subdomains
     
     @staticmethod
-    def compute_cell_centroids(mesh):
+    def compute_cell_centroids(mesh, chunk_size=10000):
         """
-        Computes the centroids of all cells in the VTK unstructured mesh using parallel processing.
+        Computes the centroids of all cells in the VTK unstructured mesh using multiprocessing.
 
         Args:
             mesh (vtk.vtkUnstructuredGrid): The input unstructured mesh.
+            chunk_size (int): Number of cells to process per batch to reduce memory load.
 
         Returns:
             np.ndarray: Shape (num_cells, 3), array of cell centroids.
@@ -546,22 +547,33 @@ class DuctAnalysisDataset(GenericGraphDataset):
         num_cells = mesh.GetNumberOfCells()
         centroids = np.zeros((num_cells, 3), dtype=np.float32)
 
-        def compute_centroid(cell_id):
-            """Computes the centroid for a given cell."""
-            cell = mesh.GetCell(cell_id)
-            num_cell_points = cell.GetNumberOfPoints()
-            centroid = np.mean([mesh.GetPoint(cell.GetPointId(j)) for j in range(num_cell_points)], axis=0)
-            return cell_id, centroid
+        def compute_centroid_chunk(cell_ids):
+            """Computes the centroids for a chunk of cells."""
+            chunk_results = []
+            for cell_id in cell_ids:
+                cell = mesh.GetCell(cell_id)
+                num_cell_points = cell.GetNumberOfPoints()
+                centroid = np.mean([mesh.GetPoint(cell.GetPointId(j)) for j in range(num_cell_points)], axis=0)
+                chunk_results.append((cell_id, centroid))
+            return chunk_results
 
-        # Parallel execution
-        with ThreadPoolExecutor() as executor:
-            results = list(tqdm(executor.map(compute_centroid, range(num_cells)), total=num_cells, desc="Computing Centroids"))
+        cell_ids = list(range(num_cells))
 
-        # Store results
-        for cell_id, centroid in results:
-            centroids[cell_id] = centroid
+        # Parallel execution with chunking
+        with ProcessPoolExecutor(max_workers=os.cpu_count) as executor:
+            results = list(tqdm(
+                executor.map(compute_centroid_chunk, [cell_ids[i:i + chunk_size] for i in range(0, num_cells, chunk_size)]),
+                total=(num_cells // chunk_size) + 1,
+                desc="Computing Centroids"
+            ))
+
+        # Flatten results and store
+        for chunk in results:
+            for cell_id, centroid in chunk:
+                centroids[cell_id] = centroid
 
         return centroids
+
 
     def _get_partition_domain(self, mesh, x, y, pos, num_subdomains):
         """
@@ -621,7 +633,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
                         frontier[i].append(neighbor)
 
         # Parallel execution of region growing
-        with ThreadPoolExecutor(max_workers=num_subdomains) as executor:
+        with ProcessPoolExecutor(max_workers=num_subdomains) as executor:
             list(tqdm(executor.map(grow_region, range(num_subdomains)), total=num_subdomains, desc="Partitioning Progress"))
 
         # Step 4: Extract Sub-Meshes and Physics Data

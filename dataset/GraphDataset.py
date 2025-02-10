@@ -565,7 +565,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
             cell_centroids[i] = centroid
 
         # Step 2: Select initial cluster centers using K-Means
-        kmeans = KMeans(n_clusters=num_subdomains, init="k-means++", n_init=2, random_state=42, verbose=1, n_jobs=-1)
+        kmeans = KMeans(n_clusters=num_subdomains, init="k-means++", n_init=2, random_state=42, verbose=1)
         cluster_labels = kmeans.fit_predict(cell_centroids)
         initial_centers = []
         for i in range(num_subdomains):

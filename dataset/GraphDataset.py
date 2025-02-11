@@ -4,15 +4,13 @@ import meshio
 import time
 import torch
 import numpy as np
-import random
+
 import tqdm
 import vtk
 from vtk import vtkFLUENTReader
 from collections import deque
 import pandas as pd
 # import multiprocessing as mp
-from multiprocessing import Manager, Process
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import torch_geometric as pyg
 from torch_geometric.data import Data, InMemoryDataset
 # from torch_geometric.loader import DataLoader
@@ -548,6 +546,53 @@ class DuctAnalysisDataset(GenericGraphDataset):
             h5_file = h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'r')
         return h5_file
     
+    def visualize_partitioned_dataset(self, partitioned_dataset):
+        """
+        Visualizes a `vtkPartitionedDataSet`, with different colors for each partition.
+
+        Args:
+            partitioned_dataset (vtk.vtkPartitionedDataSet): The partitioned dataset from vtkRedistributeDataSetFilter.
+        """
+        num_partitions = partitioned_dataset.GetNumberOfPartitions()
+
+        # Set up the renderer
+        renderer = vtk.vtkRenderer()
+        renderer.SetBackground(0.1, 0.1, 0.1)  # Dark background
+
+        for i in range(num_partitions):
+            partition = partitioned_dataset.GetPartition(i)
+            if not partition:
+                continue
+
+            # Convert partition to PolyData for visualization
+            geometry_filter = vtk.vtkGeometryFilter()
+            geometry_filter.SetInputData(partition)
+            geometry_filter.Update()
+
+            # Assign a unique color
+            r, g, b = vtk.vtkMath.Random(0, 1), vtk.vtkMath.Random(0, 1), vtk.vtkMath.Random(0, 1)
+            mapper = vtk.vtkPolyDataMapper()
+            mapper.SetInputData(geometry_filter.GetOutput())
+
+            actor = vtk.vtkActor()
+            actor.SetMapper(mapper)
+            actor.GetProperty().SetColor(r, g, b)
+
+            renderer.AddActor(actor)
+
+        # Set up the render window
+        render_window = vtk.vtkRenderWindow()
+        render_window.AddRenderer(renderer)
+        render_window.SetSize(800, 600)
+
+        # Set up the interactive window
+        interactor = vtk.vtkRenderWindowInteractor()
+        interactor.SetRenderWindow(render_window)
+
+        # Render and start interaction
+        render_window.Render()
+        interactor.Start()
+    
     def _get_partition_domain(self, mesh, x, y, pos, num_subdomains):
         """
         Perform domain decomposition on a VTK unstructured mesh and associated physics data.
@@ -564,46 +609,66 @@ class DuctAnalysisDataset(GenericGraphDataset):
         """
         # Initialize VTK MPI controller (Required for distributed processing)
         controller = vtk.vtkMultiProcessController.GetGlobalController()
-        if controller is None:
-            print("Error: VTK MPI controller not initialized. Using single process.")
+        # Check if MPI is available
+        if not controller or controller.GetNumberOfProcesses() <= 1:
+            print("Warning: Running in serial mode. No MPI parallelism available.")
             controller = vtk.vtkDummyController()
 
         # Set up the distributed data filter
         distributed_filter = vtk.vtkRedistributeDataSetFilter()
         distributed_filter.SetController(controller)
+
+        # Assign global node IDs to the mesh
+        mesh = self.assign_global_node_id(mesh)
+        
         distributed_filter.SetInputData(mesh)
+        distributed_filter.SetPreservePartitionsInOutput(True)
         # set up the number of partitions
         distributed_filter.SetNumberOfPartitions(num_subdomains)
-        progress_observer = ProgressObserver()
-        distributed_filter.AddObserver(vtk.vtkCommand.ProgressEvent, progress_observer)
+        progress_observer = vtk.vtkSMPProgressObserver()
+        distributed_filter.SetProgressObserver(progress_observer)
+
         distributed_filter.SetBoundaryModeToAssignToAllIntersectingRegions()
 
+        # Ensure the input data is correctly assigned
+        distributed_filter.SetInputData(mesh)
+
         # Execute the partitioning
+        distributed_filter.UpdateInformation()
+        distributed_filter.Modified()
         distributed_filter.Update()
 
         # Retrieve partitioned mesh
         partitioned_mesh = distributed_filter.GetOutput()
 
+        # Visualize the partitioned mesh
+        self.visualize_partitioned_dataset(partitioned_mesh)
+
         controller.Finalize()
+
+        num_partitions = partitioned_mesh.GetNumberOfPartitions()
+        print(f"Partitioned mesh into {num_partitions} subdomains.")
+        # update self.sub_size
+        self.sub_size = num_partitions
 
         with h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'w') as f:
             for i in tqdm.tqdm(range(num_subdomains), desc="Processing Subdomains"):
-                threshold = vtk.vtkThreshold()
-                threshold.SetInputData(partitioned_mesh)
-                threshold.SetUpperThreshold(i)
-                threshold.SetLowerThreshold(i)
-                threshold.Update()
+                partition = partitioned_mesh.GetPartition(i)
+                if not partition:
+                    print(f"Warning: Partition {i} is empty. Skipping.")
+                    continue
 
-                geometry_filter = vtk.vtkGeometryFilter()
-                geometry_filter.SetInputData(threshold.GetOutput())
-                geometry_filter.Update()
+                node_id_array = partition.GetPointData().GetArray("GlobalNodeID")
+                if node_id_array is None:
+                    print(f"Error: Partition {i} missing GlobalNodeID. Skipping.")
+                    continue
 
-                submesh = geometry_filter.GetOutput()
-                sub_x = x[threshold.GetOutput().GetPointData().GetArray('GlobalNodeID')]
-                sub_y = y[threshold.GetOutput().GetPointData().GetArray('GlobalNodeID')]
-                sub_pos = pos[threshold.GetOutput().GetPointData().GetArray('GlobalNodeID')]
+                global_node_ids = np.array([node_id_array.GetValue(j) for j in range(node_id_array.GetNumberOfValues())])
+                sub_x = x[global_node_ids]
+                sub_y = y[global_node_ids]
+                sub_pos = pos[global_node_ids]
 
-                subdomain_data = self.vtk_to_pyg(submesh)
+                subdomain_data = self.vtk_to_pyg(partition)
                 # set edge_attr as edge length
                 edge_attr = np.linalg.norm(sub_pos[subdomain_data.edge_index[0]] - sub_pos[subdomain_data.edge_index[1]], axis=1)
 
@@ -615,6 +680,25 @@ class DuctAnalysisDataset(GenericGraphDataset):
                 group.create_dataset('edge_attr', data=edge_attr)
 
         print("Partitioning complete.")
+
+    def assign_global_node_id(self, mesh):
+        """
+        Assigns a global node ID to each point in a VTK unstructured grid.
+        """
+        num_points = mesh.GetNumberOfPoints()
+        global_node_ids = np.arange(num_points)
+        global_node_id_array = vtk.vtkIntArray()
+        global_node_id_array.SetName("GlobalNodeID")
+        global_node_id_array.SetNumberOfComponents(1)
+        global_node_id_array.SetNumberOfValues(num_points)
+
+        for i in range(num_points):
+            global_node_id_array.SetValue(i, global_node_ids[i])
+
+        mesh.GetPointData().AddArray(global_node_id_array)
+        mesh.GetPointData().SetActiveScalars("GlobalNodeID")
+
+        return mesh
     
     @staticmethod
     def reconstruct_from_partition(subdomains):

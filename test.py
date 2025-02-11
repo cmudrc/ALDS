@@ -4,6 +4,7 @@ import torch
 import os
 from sklearn.metrics import r2_score
 import wandb
+from mpi4py import MPI
 
 
 def train_graph_ALDD(exp_name, encoder, classifier, model, dataset, num_partitions, train_config, **kwargs):
@@ -41,6 +42,7 @@ def pred_graph_ALDD(idxs, exp_name, encoder, classifier, model, dataset, num_par
 if __name__ == '__main__':
     # dataset = CoronaryArteryDataset(root='data/coronary', partition=True, sub_size=5)
     # dataset = DuctAnalysisDataset(root='data/Duct', partition=True, sub_size=0.03)
+    # MPI.Init()
     args = parse_args()
     run_mode = args.mode
     encoder_name = args.encoder

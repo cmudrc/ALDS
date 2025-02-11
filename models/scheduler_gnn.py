@@ -137,11 +137,11 @@ class GNNPartitionScheduler():
                         loss += 0.1 * loss_l_infty
                         loss.backward()
                         # monitor gradient during training
-                        for name, param in model.named_parameters():
-                            if param.grad is not None:
-                                print({f'{name}_grad': param.grad.norm()})
+                        # for name, param in model.named_parameters():
+                        #     if param.grad is not None:
+                        #         print({f'{name}_grad': param.grad.norm()})
                         optimizer.step()
-                        print(optimizer.param_groups[0]['lr'])
+                        # print(optimizer.param_groups[0]['lr'])
                         train_loss += loss.item()
                     train_loss /= len(train_loader)
                     wandb.log({'train_loss': train_loss})

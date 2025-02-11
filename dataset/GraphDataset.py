@@ -16,7 +16,7 @@ from torch_geometric.data import Data, InMemoryDataset
 # from torch_geometric.loader import DataLoader
 from torch_geometric.utils import subgraph
 import h5py
-import multiprocessing as mp
+# import multiprocessing as mp
 
 
 class GenericGraphDataset(InMemoryDataset):
@@ -299,19 +299,25 @@ class DuctAnalysisDataset(GenericGraphDataset):
         pass
 
     def len(self):
-        return len(self._data)
+        # return the number of samples in the dataset
+        if not self.partition:
+            return len(self._data)
+        else:
+            # return the number of subdomains in the h5 file
+            with h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'r') as f:
+                return len(f.keys())
     
     def get(self, idx):
         if not self.partition:
             return self._data[idx]
         else:
-            with h5py.File(self.data, 'r') as f:
+            with h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'r') as f:
                 group = f[f'subdomain_{idx}']
-                x = torch.tensor(group['x'], dtype=torch.float)
-                y = torch.tensor(group['y'], dtype=torch.float)
-                pos = torch.tensor(group['pos'], dtype=torch.float)
-                edge_index = torch.tensor(group['edge_index'], dtype=torch.long)
-                edge_attr = torch.tensor(group['edge_attr'], dtype=torch.float)
+                x = torch.tensor(np.array(group['x']), dtype=torch.float)
+                y = torch.tensor(np.array(group['y']), dtype=torch.float)
+                pos = torch.tensor(np.array(group['pos']), dtype=torch.float)
+                edge_index = torch.tensor(np.array(group['edge_index']), dtype=torch.long)
+                edge_attr = torch.tensor(np.array(group['edge_attr']), dtype=torch.float)
 
                 data = Data(x=x, y=y, pos=pos, edge_index=edge_index, edge_attr=edge_attr)
                 return data
@@ -531,8 +537,8 @@ class DuctAnalysisDataset(GenericGraphDataset):
         
         :param data: the original domain stored in a torch_geometric.data.Data object. 
         """
-        if os.path.exists(os.path.join(self.root, 'partition', 'data.pt')):
-            h5_file = h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'r')
+        if os.path.exists(os.path.join(self.root, 'partition', 'data.h5')):
+            pass
         else:
             os.makedirs(os.path.join(self.root, 'partition'), exist_ok=True)
             reader = vtkFLUENTReader()
@@ -543,8 +549,6 @@ class DuctAnalysisDataset(GenericGraphDataset):
             x, y, pos = data.x, data.y, data.pos
             num_subdomains = self.sub_size
             self._get_partition_domain(mesh, x, y, pos, num_subdomains)
-            h5_file = h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'r')
-        return h5_file
     
     def visualize_partitioned_dataset(self, partitioned_dataset):
         """
@@ -620,7 +624,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
 
         # Assign global node IDs to the mesh
         mesh = self.assign_global_node_id(mesh)
-        
+
         distributed_filter.SetInputData(mesh)
         distributed_filter.SetPreservePartitionsInOutput(True)
         # set up the number of partitions

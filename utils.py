@@ -232,7 +232,7 @@ def parse_args():
     parser.add_argument('--classifier', type=str, default='kmeans', help='Name of the classifier')
     parser.add_argument('--model', type=str, default='neuralop', help='Name of the model')
     parser.add_argument('--exp_name', type=str, default='collection_duct_neuralop', help='Name of the experiment')
-    parser.add_argument('--mode', type=str, default='pred', help='Mode of the experiment')
+    parser.add_argument('--mode', type=str, default='train', help='Mode of the experiment')
     parser.add_argument('--exp_config', type=str, default='configs/exp_config/teecnet_duct.yaml', help='Path to the experiment configuration file')
     parser.add_argument('--train_config', type=str, default='configs/train_config/teecnet.yaml', help='Path to the training configuration file')
     args = parser.parse_args()

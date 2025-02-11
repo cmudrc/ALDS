@@ -4,7 +4,6 @@ import torch
 import os
 from sklearn.metrics import r2_score
 import wandb
-from mpi4py import MPI
 
 
 def train_graph_ALDD(exp_name, encoder, classifier, model, dataset, num_partitions, train_config, **kwargs):

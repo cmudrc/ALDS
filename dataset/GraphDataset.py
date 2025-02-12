@@ -405,10 +405,10 @@ class DuctAnalysisDataset(GenericGraphDataset):
         mesh_points = np.array([mesh.GetPoint(i) for i in range(num_points)])  # Convert mesh points to NumPy array
         
         tree = KDTree(physics_points)  # Build KDTree for fast lookup
-
+        print("Building KDTree for fast lookup...")
         # Parallelized lookup
-        _, nearest_indices = tree.query(mesh_points, workers=-1)
-
+        _, nearest_indices = tree.query(mesh_points, workers=16)
+        print("Parallelized KDTree lookup complete.")
         return nearest_indices.astype(np.int64)
 
     def _process_file(self, path_list):
@@ -490,10 +490,8 @@ class DuctAnalysisDataset(GenericGraphDataset):
                 pressure_high = self._lagrangian_interpolation(mesh, pressure, mesh_high)
 
                 velocity_high = torch.cat([velocity_x_high, velocity_y_high, velocity_z_high], dim=1)
-                velocity_high = torch.tensor(velocity_high, dtype=torch.float)
                 # normalize the velocity
                 velocity_high = velocity_high / torch.max(torch.abs(velocity_high))
-                pressure_high = torch.tensor(pressure_high, dtype=torch.float)
                 # normalize the pressure
                 pressure_high = pressure_high / torch.max(pressure_high)
                 # check if nan exists in the interpolated physics data
@@ -657,8 +655,8 @@ class DuctAnalysisDataset(GenericGraphDataset):
 
         # set up the number of partitions
         distributed_filter.SetNumberOfPartitions(num_subdomains)
-        progress_observer = vtk.vtkSMPProgressObserver()
-        distributed_filter.SetProgressObserver(progress_observer)
+        progress_observer = vtk.vtkProgressObserver()
+        distributed_filter.AddObserver(vtk.vtkCommand.ProgressEvent, progress_observer)
 
         distributed_filter.SetBoundaryModeToAssignToAllIntersectingRegions()
 
@@ -809,4 +807,4 @@ class ProgressObserver:
         """Handles progress update events."""
         if isinstance(caller, vtk.vtkDistributedDataFilter):
             self.progress = caller.GetProgress() * 100
-            print(f"\rPartitioning Progress: {self.progress:.2f}%", end="")
+            print(f"\rPartitioning Progress: {self.progress:.2f}%", end="", flush=True)

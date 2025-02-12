@@ -160,7 +160,7 @@ class GNNPartitionScheduler():
                                 val_loss += loss.item()
                             val_loss /= len(val_loader)
                             wandb.log({'val_loss': val_loss})
-                            plot_3d_prediction(batch[0], out, save_mode='wandb', path='logs/figures/{}'.format(self.name))
+                            # plot_3d_prediction(batch[0], out, save_mode='wandb', path='logs/figures/{}'.format(self.name))
                             if val_loss < best_loss:
                                 best_loss = val_loss
                                 os.makedirs('logs/models/collection_{}'.format(self.name), exist_ok=True)

@@ -4,7 +4,8 @@ import meshio
 import time
 import torch
 import numpy as np
-
+from scipy.spatial import KDTree
+from joblib import Parallel, delayed
 import tqdm
 import vtk
 from vtk import vtkFLUENTReader
@@ -16,7 +17,6 @@ from torch_geometric.data import Data, InMemoryDataset
 # from torch_geometric.loader import DataLoader
 from torch_geometric.utils import subgraph
 import h5py
-# import multiprocessing as mp
 
 
 class GenericGraphDataset(InMemoryDataset):
@@ -397,6 +397,20 @@ class DuctAnalysisDataset(GenericGraphDataset):
 
         return Data(pos=pos, edge_index=edge_index)
 
+    def _map_physics_data_to_mesh(self, mesh, physics_points):
+        """
+        Map the physics data to the mesh nodes based on the coordinates using parallel processing.
+        """
+        num_points = mesh.GetNumberOfPoints()
+        mesh_points = np.array([mesh.GetPoint(i) for i in range(num_points)])  # Convert mesh points to NumPy array
+        
+        tree = KDTree(physics_points)  # Build KDTree for fast lookup
+
+        # Parallelized lookup
+        _, nearest_indices = tree.query(mesh_points, workers=-1)
+
+        return nearest_indices.astype(np.int64)
+
     def _process_file(self, path_list):
         data_list = []
         # mesh_idx = ['High', 'Med', 'Low']
@@ -434,21 +448,33 @@ class DuctAnalysisDataset(GenericGraphDataset):
             # process physics files
             # print(path_list[idx+3])
             physics = pd.read_csv(path_list[idx+3], sep=',')
+            physics_points = np.vstack((physics['    x-coordinate'], 
+                                physics['    y-coordinate'], 
+                                physics['    z-coordinate'])).T
+
             # print(physics)
             velocity_x = torch.tensor(physics['      x-velocity'], dtype=torch.float).unsqueeze(1)
             velocity_y = torch.tensor(physics['      y-velocity'], dtype=torch.float).unsqueeze(1)
             velocity_z = torch.tensor(physics['      z-velocity'], dtype=torch.float).unsqueeze(1)
-            velocity = torch.cat([velocity_x, velocity_y, velocity_z], dim=1)
+            # velocity = torch.cat([velocity_x, velocity_y, velocity_z], dim=1)
             # normalize the velocity to be in the range of [0, 1]
-            velocity = velocity / torch.max(torch.abs(velocity))
 
             pressure = torch.tensor(physics['        pressure'], dtype=torch.float).unsqueeze(1)
             # normalize the pressure
             pressure = pressure / torch.max(pressure)
-            # check if nan exists in the physics data
-            if torch.isnan(velocity).sum() > 0 or torch.isnan(pressure).sum() > 0:
-                print('nan exists in original physics data')
 
+            physics_map = self._map_physics_data_to_mesh(mesh, physics_points)
+
+            # reorganize the physics data according to the mesh node id
+            velocity_x = velocity_x[physics_map]
+            velocity_y = velocity_y[physics_map]
+            velocity_z = velocity_z[physics_map]
+            velocity = torch.cat([velocity_x, velocity_y, velocity_z], dim=1)
+            pressure = pressure[physics_map]
+
+            del physics_points, physics_map
+
+            velocity = velocity / torch.max(torch.abs(velocity))
             # create a torch_geometric.data.Data object if the mesh is of high resolution
             if idx == 0:
                 mesh_high = mesh

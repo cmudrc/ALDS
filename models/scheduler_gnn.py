@@ -185,14 +185,72 @@ class GNNPartitionScheduler():
             self._train_sub_models(self.model, train_config, torch.device('cpu'), subset_idx, is_parallel=False)
 
     def predict(self, x):
-        # pred_y_list = []
+        pred_y_list = []
         for model in self.models:
             model.eval()
             with torch.no_grad():
-                for i in range(len(x)):
-                    pred_y = model(x[i].x, x[i].edge_index, x[i].edge_attr)
-                    x[i].x = pred_y
-        return x
+                if torch.cuda.device_count() > 1:
+                    if not mp.get_start_method(allow_none=True) == 'spawn':
+                        mp.set_start_method('spawn')
+                    # split the list of x into chunks and predict in parallel
+                    world_size = torch.cuda.device_count()
+                    model.share_memory()
+                    num_samples_per_gpu = len(x) // world_size
+                    x_input = [x[i*num_samples_per_gpu:(i+1)*num_samples_per_gpu] for i in range(world_size-1)]
+                    x_input.append(x[(world_size-1)*num_samples_per_gpu:])
+                    manager = mp.Manager()
+                    result_queue = manager.dict()
+                    processes = []
+                    for rank in range(world_size):
+                        p = mp.Process(
+                            target=self._predict_sub_models_parallel,
+                            args=(rank, model, x_input[rank], result_queue, world_size)
+                        )
+                        p.start()
+                        processes.append(p)
+
+                    for p in processes:
+                        p.join()
+
+                    for i in range(world_size):
+                        pred_y_list.extend(result_queue[i])
+
+                else:
+                    model = model.to('cuda')
+                    for i in range(len(x)):
+                        x_data = x[i]
+                        x_data = x_data.to('cuda')
+                        pred_y = model(x_data.x, x_data.edge_index, x_data.edge_attr)
+                        pred_y_list.append(pred_y)
+        return pred_y_list
+    
+    @staticmethod
+    def _predict_sub_models_parallel(rank, model, x_local, results, world_size):
+        # Setup distributed process group
+        os.environ['MASTER_ADDR'] = 'localhost'
+        os.environ['MASTER_PORT'] = '12355'
+        dist.init_process_group("nccl", rank=rank, world_size=world_size, timeout=datetime.timedelta(seconds=1000))
+
+        local_device = f"cuda:{rank}"
+
+        # Initialize model and wrap it with DistributedDataParallel
+        model = model.to(local_device)
+
+        pred_y_list = []
+        for i in range(len(x_local)):
+            local_data = x_local[i]
+            local_data = local_data.to(local_device)
+            pred_y = model(local_data.x, local_data.edge_index, local_data.edge_attr)
+            pred_y_list.append(pred_y.detach().cpu())
+            # print location of pred_y_list[i]
+            # print(f'Rank {rank}: {pred_y_list[i].device}')
+
+            del local_data, pred_y
+
+        # Cleanup distributed process group
+        dist.destroy_process_group()
+        # pred_y_list = torch.cat(pred_y_list, dim=0)
+        results[rank] = pred_y_list
                  
     @staticmethod
     def _train_sub_models_parallel(rank, model, name, world_size, train_dataset, val_dataset, train_config):

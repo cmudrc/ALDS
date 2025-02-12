@@ -9,17 +9,13 @@ from models.model import *
 from dataset.MatDataset import *
 from dataset.GraphDataset import *
 # from torch_geometric.data import Data
-import torch_geometric as pyg
 from torch_geometric.nn import GraphSAGE
 import yaml
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from itertools import combinations
 import wandb
 from numba import jit
 import vtk
-from vtk import vtkUnstructuredGrid, vtkPoints, vtkCellArray, vtkXMLUnstructuredGridWriter, vtkTetra, vtkHexahedron
-import networkx as nx
 
 
 def load_yaml(path):
@@ -232,7 +228,7 @@ def parse_args():
     parser.add_argument('--classifier', type=str, default='kmeans', help='Name of the classifier')
     parser.add_argument('--model', type=str, default='neuralop', help='Name of the model')
     parser.add_argument('--exp_name', type=str, default='collection_duct_neuralop', help='Name of the experiment')
-    parser.add_argument('--mode', type=str, default='train', help='Mode of the experiment')
+    parser.add_argument('--mode', type=str, default='pred', help='Mode of the experiment')
     parser.add_argument('--exp_config', type=str, default='configs/exp_config/teecnet_duct.yaml', help='Path to the experiment configuration file')
     parser.add_argument('--train_config', type=str, default='configs/train_config/teecnet.yaml', help='Path to the training configuration file')
     args = parser.parse_args()

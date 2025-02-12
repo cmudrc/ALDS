@@ -346,8 +346,10 @@ class DuctAnalysisDataset(GenericGraphDataset):
         """
         for i in range(multi_block.GetNumberOfBlocks()):
             block = multi_block.GetBlock(i)
+            # if the block metadata contains interior, return the body mesh block
             if isinstance(block, vtk.vtkUnstructuredGrid):
-                return block
+                if multi_block.GetMetaData(i).Get(vtk.vtkCompositeDataSet.NAME()) == "interior:interior-fluid":
+                    return block
         raise ValueError("No vtkUnstructuredGrid found in the .msh file.")
     
     @staticmethod
@@ -395,8 +397,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
 
         return Data(pos=pos, edge_index=edge_index)
 
-    @staticmethod
-    def _process_file(path_list):
+    def _process_file(self, path_list):
         data_list = []
         # mesh_idx = ['High', 'Med', 'Low']
         # process mesh files
@@ -408,7 +409,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
             # Extract mesh from VTK output
             dataset = reader.GetOutput()
 
-            mesh = DuctAnalysisDataset.extract_unstructured_grid(dataset)
+            mesh = self.extract_unstructured_grid(dataset)
             num_points = mesh.GetNumberOfPoints()
             num_cells = mesh.GetNumberOfCells()
 
@@ -416,7 +417,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
                 raise ValueError("No valid mesh data found in the .msh file.")
 
             try:
-                wall_mesh = DuctAnalysisDataset.extract_wall_block(dataset)
+                wall_mesh = self.extract_wall_block(dataset)
                 wall_indices = set()
 
                 for i in range(wall_mesh.GetNumberOfCells()):
@@ -451,16 +452,16 @@ class DuctAnalysisDataset(GenericGraphDataset):
             # create a torch_geometric.data.Data object if the mesh is of high resolution
             if idx == 0:
                 mesh_high = mesh
-                data = DuctAnalysisDataset.vtk_to_pyg(mesh)
+                data = self.vtk_to_pyg(mesh)
                 data.y = torch.cat([velocity, pressure], dim=1)
                 data.wall_idx = wall_index_tensor
                 data_list.append(data)
             else:
                 # call lagrangian interpolation to interpolate the physics data to the high resolution mesh
-                velocity_x_high = DuctAnalysisDataset._lagrangian_interpolation(mesh, velocity_x, mesh_high)
-                velocity_y_high = DuctAnalysisDataset._lagrangian_interpolation(mesh, velocity_y, mesh_high)
-                velocity_z_high = DuctAnalysisDataset._lagrangian_interpolation(mesh, velocity_z, mesh_high)
-                pressure_high = DuctAnalysisDataset._lagrangian_interpolation(mesh, pressure, mesh_high)
+                velocity_x_high = self._lagrangian_interpolation(mesh, velocity_x, mesh_high)
+                velocity_y_high = self._lagrangian_interpolation(mesh, velocity_y, mesh_high)
+                velocity_z_high = self._lagrangian_interpolation(mesh, velocity_z, mesh_high)
+                pressure_high = self._lagrangian_interpolation(mesh, pressure, mesh_high)
 
                 velocity_high = torch.cat([velocity_x_high, velocity_y_high, velocity_z_high], dim=1)
                 velocity_high = torch.tensor(velocity_high, dtype=torch.float)
@@ -618,15 +619,16 @@ class DuctAnalysisDataset(GenericGraphDataset):
             print("Warning: Running in serial mode. No MPI parallelism available.")
             controller = vtk.vtkDummyController()
 
+        # generate global node IDs
+        mesh = self.assign_global_node_id(mesh)
+
         # Set up the distributed data filter
         distributed_filter = vtk.vtkRedistributeDataSetFilter()
         distributed_filter.SetController(controller)
 
-        # Assign global node IDs to the mesh
-        mesh = self.assign_global_node_id(mesh)
-
         distributed_filter.SetInputData(mesh)
         distributed_filter.SetPreservePartitionsInOutput(True)
+
         # set up the number of partitions
         distributed_filter.SetNumberOfPartitions(num_subdomains)
         progress_observer = vtk.vtkSMPProgressObserver()
@@ -645,8 +647,14 @@ class DuctAnalysisDataset(GenericGraphDataset):
         # Retrieve partitioned mesh
         partitioned_mesh = distributed_filter.GetOutput()
 
+        # save the partitioned mesh
+        writer = vtk.vtkXMLPartitionedDataSetWriter()
+        writer.SetFileName(os.path.join(self.root, 'partition', 'partitioned_mesh.vtpd'))
+        writer.SetInputData(partitioned_mesh)
+        writer.Write()
+
         # Visualize the partitioned mesh
-        self.visualize_partitioned_dataset(partitioned_mesh)
+        # self.visualize_partitioned_dataset(partitioned_mesh)
 
         controller.Finalize()
 
@@ -656,7 +664,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
         self.sub_size = num_partitions
 
         with h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'w') as f:
-            for i in tqdm.tqdm(range(num_subdomains), desc="Processing Subdomains"):
+            for i in tqdm.tqdm(range(num_partitions), desc="Processing Subdomains"):
                 partition = partitioned_mesh.GetPartition(i)
                 if not partition:
                     print(f"Warning: Partition {i} is empty. Skipping.")
@@ -685,6 +693,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
 
         print("Partitioning complete.")
 
+    # been overwritten by the filter. will get deprecated
     def assign_global_node_id(self, mesh):
         """
         Assigns a global node ID to each point in a VTK unstructured grid.
@@ -704,49 +713,55 @@ class DuctAnalysisDataset(GenericGraphDataset):
 
         return mesh
     
-    @staticmethod
-    def reconstruct_from_partition(subdomains):
+    def reconstruct_from_partition(self, subdomain_data_list):
         """
         reconstructs the original domain from a partitioned collection of subdomains
         
         :param subdomains: a list of subdomains, each stored in a torch_geometric.data.Data object
         """
-        # concatenate all subdomains
-        data = Data()
-        # arrange data.x of subdomains according to the global node id
-        global_node_id = torch.cat([subdomain.global_node_id for subdomain in subdomains], dim=0)
-        global_node_id = global_node_id.unique()
-        global_node_id = global_node_id[global_node_id != -1]
-        # node_map = dict(zip(global_node_id.numpy(), range(global_node_id.size(0)))
-        x = torch.cat([subdomain.x for subdomain in subdomains], dim=0)
-        x = x[global_node_id]
-        # arrange data.y of subdomains according to the global node id
-        y = torch.cat([subdomain.y for subdomain in subdomains], dim=0)
-        y = y[global_node_id]
-        # arrange data.pos of subdomains according to the global node id
-        pos = torch.cat([subdomain.pos for subdomain in subdomains], dim=0)
-        pos = pos[global_node_id]
-        # arrange data.edge_index of subdomains according to the global node id
-        # edge_index = torch.cat([subdomain.edge_index for subdomain in subdomains], dim=1)
-        # edge_index = edge_index[:, edge_index[0].argsort()]
-        # edge_index = edge_index[:, edge_index[1].argsort()]
-        # edge_index = edge_index[:, edge_index[0] != -1]
-        # edge_index = edge_index[:, edge_index[1] != -1]
-        # edge_index = edge_index[:, edge_index[0] != edge_index[1]]
-        # # arrange data.edge_attr of subdomains according to the global node id
-        # edge_attr = torch.cat([subdomain.edge_attr for subdomain in subdomains], dim=0)
-        # edge_attr = edge_attr[edge_index[0]]
-        
-        data.x = x
-        data.y = y
-        data.pos = pos
-        # data.edge_index = edge_index
-        # data.edge_attr = edge_attr
+        # load the partitioned data
+        reader = vtk.vtkXMLPartitionedDataSetReader()
+        reader.SetFileName(os.path.join(self.root, 'partition', 'partitioned_mesh.vtpd'))
+        reader.Update()
 
-        return data
+        partitioned_mesh = reader.GetOutput()
+
+        append_filter = vtk.vtkAppendDataSets()
+        num_partitions = partitioned_mesh.GetNumberOfPartitions()
+
+        for i in range(num_partitions):
+            partition = partitioned_mesh.GetPartition(i)
+            velocity_array = vtk.vtkFloatArray()
+            pressure_array = vtk.vtkFloatArray()
+            velocity_array.SetName("velocity")
+            pressure_array.SetName("pressure")
+            velocity_array.SetNumberOfComponents(3)
+            pressure_array.SetNumberOfComponents(1)
+
+            for row in subdomain_data_list[i][:, :3].numpy():
+                velocity_array.InsertNextTuple3(row[0], row[1], row[2])
+            for value in subdomain_data_list[i][:, 3].numpy():
+                pressure_array.InsertNextTuple1(value)
+
+            partition.GetPointData().AddArray(velocity_array)
+            partition.GetPointData().AddArray(pressure_array)
+
+            if not partition:
+                print(f"Warning: Partition {i} is empty. Skipping.")
+                continue
+
+            # Create a VTK unstructured grid from the subdomain data
+            append_filter.AddInputData(partition)
+
+        append_filter.Update()
+        
+        reconstructed_mesh = append_filter.GetOutput()
+
+        return reconstructed_mesh
+
     
     def get_one_full_sample(self, idx):
-        return self.data
+        return self
     
 
 class SubGraphDataset(InMemoryDataset):

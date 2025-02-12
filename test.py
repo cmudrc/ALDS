@@ -17,25 +17,17 @@ def pred_graph_ALDD(idxs, exp_name, encoder, classifier, model, dataset, num_par
         pred_y_list = scheduler.predict(x)
         
         pred_y = dataset.reconstruct_from_partition(pred_y_list)
-        pred_y.pred = pred_y.x
+        # pred_y.pred = pred_y.x
 
-        original_mesh_data = torch.load(f'data/Duct/processed/data.pt')
-        graph_data = original_mesh_data[0]
-        pred_y.edge_index = graph_data.edge_index
-        pred_y.edge_attr = graph_data.edge_attr
-
-        plot_3d_prediction(pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/timestep_{idx}')
-
-        r2_scores = r2_score(pred_y.x.flatten().cpu().detach().numpy(), pred_y.y.flatten().cpu().detach().numpy())
-        os.makedirs(f'logs/vtk/{exp_name}', exist_ok=True)
-        convert_pyg_to_vtk(pred_y, f'logs/vtk/{exp_name}/timestep_{idx}.vtk')
         # save the prediction
-        os.makedirs(f'logs/raw_data/{exp_name}', exist_ok=True)
-        torch.save(pred_y, f'logs/raw_data/{exp_name}/pred_timestep_{idx}.pth')
+        os.makedirs(f'logs/vtk/{exp_name}', exist_ok=True)
+        writer = vtk.vtkXMLUnstructuredGridWriter()
+        writer.SetFileName(f'logs/vtk/{exp_name}/pred_timestep_{idx}.vtu')
+        writer.SetInputData(pred_y)
+        writer.Write()
+
         # torch.save(sub_y, f'logs/raw_data/{exp_name}/gt_timestep_{idx}.pth')
-        if save_mode == 'wandb':
-            wandb.log({'r2_score': r2_scores})
-        print(f'Prediction for done!')
+        print(f'Prediction done!')
 
 
 if __name__ == '__main__':

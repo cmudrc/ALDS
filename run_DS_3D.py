@@ -1,9 +1,10 @@
 from models.scheduler_gnn import GNNPartitionScheduler
 from utils import *
-import torch
+
 import os
 from sklearn.metrics import r2_score
-import wandb
+
+import time
 
 
 def train_graph_ALDD(exp_name, encoder, classifier, model, dataset, num_partitions, train_config, **kwargs):
@@ -14,9 +15,18 @@ def pred_graph_ALDD(idxs, exp_name, encoder, classifier, model, dataset, num_par
     scheduler = GNNPartitionScheduler(exp_name, num_partitions, dataset, encoder, classifier, model, train=False)
     for idx in idxs:
         x = dataset.get_one_full_sample(idx)
+
+        time_start = time.time()
         pred_y_list = scheduler.predict(x)
+        time_end = time.time()
+
+        print(f'Prediction time: {time_end - time_start}')
         
+        time_start = time.time()
         pred_y = dataset.reconstruct_from_partition(pred_y_list)
+        time_end = time.time()
+
+        print(f'Reconstruction time: {time_end - time_start}')
         # pred_y.pred = pred_y.x
 
         # save the prediction

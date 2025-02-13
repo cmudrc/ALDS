@@ -449,8 +449,8 @@ class DuctAnalysisDataset(GenericGraphDataset):
             # print(path_list[idx+3])
             physics = pd.read_csv(path_list[idx+3], sep=',')
             physics_points = np.vstack((physics['    x-coordinate'], 
-                                physics['    y-coordinate'], 
-                                physics['    z-coordinate'])).T
+                                        physics['    y-coordinate'], 
+                                        physics['    z-coordinate'])).T
 
             # print(physics)
             velocity_x = torch.tensor(physics['      x-velocity'], dtype=torch.float).unsqueeze(1)

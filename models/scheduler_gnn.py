@@ -194,6 +194,7 @@ class GNNPartitionScheduler():
                         mp.set_start_method('spawn')
                     # split the list of x into chunks and predict in parallel
                     world_size = torch.cuda.device_count()
+                    print(f'Using {world_size} GPUs')
                     model.share_memory()
                     num_samples_per_gpu = len(x) // world_size
                     x_input = [x[i*num_samples_per_gpu:(i+1)*num_samples_per_gpu] for i in range(world_size-1)]

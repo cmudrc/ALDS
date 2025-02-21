@@ -166,5 +166,6 @@ data/
 # logs
 logs/figures/
 logs/raw_data/
+logs/vtk/
 wandb/
 plots/

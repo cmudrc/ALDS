@@ -18,31 +18,80 @@ import torch.nn.functional as F
 # from dolfin import *
 
 
-# class MatDataset(InMemoryDataset):
-#     def __init__(self, root, transform=None, pre_transform=None):
-#         super(MatDataset, self).__init__(root, transform, pre_transform)
-#         self.data, self.slices = torch.load(self.processed_paths[0])
+class ToyHelmholtz1D(Dataset):
+    def __init__(self, root, freq_bandwidth=(0.1, 0.5), num_samples=1000, num_points=64, partition=False, **kwargs):
+        self.root = root
+        os.makedirs(self.root, exist_ok=True)
+        self.dataset = self._generate_helmholtz_data(freq_bandwidth=freq_bandwidth, num_samples=num_samples, num_points=num_points)
+        self.data = self.dataset
+        if partition:
+            self.sub_size = kwargs['sub_size']
+            self.data = self.get_partition_domain(self.dataset)
 
-#     @property
-#     def raw_file_names(self):
-#         return []
-    
-#     @property
-#     def processed_file_names(self):
-#         return ['data.pt']
-    
-#     def download(self):
-#         pass
+    def _get_partition_domain(self, x):
+        # partition the domain into num_partitions subdomains of the same size
+        x_list = []
+        # if x is a tuple, extract the data
+        if isinstance(x, tuple):
+            data, label = x
+        num_partitions_dim = data // self.sub_size
 
-#     def process(self):
-#         raise NotImplementedError
+        for i in range(num_partitions_dim):
+            if isinstance(x, tuple):
+                x_list.append((data[:, i*self.sub_size:(i+1)*self.sub_size], label[:, i*self.sub_size:(i+1)*self.sub_size]))
+            else:
+                x_list.append(data[:, i*self.sub_size:(i+1)*self.sub_size])
+        return x_list
     
-#     def extract_solution(self, h5_file, sim, res):
-#         raise NotImplementedError
+    def get_partition_domain(self, dataset):
+        # add all the partitioned subdomains to the dataset
+        data_list = []
+        for data in dataset:
+            data_list.append(self._get_partition_domain(data))
+        return data_list
     
-#     def construct_data_object(self, coords, connectivity, solution, k):
-#         raise NotImplementedError
+    def reconstruct_from_partitions(self, x, x_list):
+        # reconstruct the domain from the partitioned subdomains
+        num_partitions_dim = x.shape[1] // self.sub_size
+        x = torch.zeros_like(x)
+        for i in range(num_partitions_dim):
+            x[:, i*self.sub_size:(i+1)*self.sub_size] = x_list[i]
+
+        return x
+
+    def _generate_helmholtz_data(self, freq_bandwidth, num_samples=1000, num_points=80, num_segments=10):
+        if os.path.exists(os.path.join(self.root, 'helmholtz_data.pt')):
+            return torch.load(os.path.join(self.root, 'helmholtz_data.pt'))
+        x = np.linspace(0, 1, num_points)  # Spatial domain
+        segment_size = num_points // num_segments  # Number of points per segment
+        data = []
+        for _ in range(num_samples):
+            # Define piecewise constant k(x), ensuring each segment spans at least 1/10 of the domain
+            k_x = np.zeros(num_points)
+            segment_frequencies = np.random.uniform(freq_bandwidth[0], freq_bandwidth[1], size=num_segments)
+
+            # Assign frequencies to each segment
+            for i in range(num_segments):
+                k_x[i * segment_size: (i + 1) * segment_size] = segment_frequencies[i]
+
+            # Ensure continuity by linear interpolation at boundaries
+            for i in range(1, num_segments):
+                k_x[i * segment_size] = (k_x[i * segment_size - 1] + k_x[i * segment_size + 1]) / 2
+
+            # Compute the forcing function f(x) and solution u(x) for varying k(x)
+            f = np.sin(2 * np.pi * k_x * x)  # Forcing term
+            u = np.sin(2 * np.pi * k_x * x) / (1 + (2 * np.pi * k_x)**2)  # Solution
+
+            data.append((f, u))
+
+        torch.save(data, os.path.join(self.root, 'helmholtz_data.pt'))
+        return data
     
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        return self.data[idx]
 
 class BurgersDataset(Dataset):
     def __init__(self, root, transform=None, pre_transform=None):

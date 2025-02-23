@@ -164,6 +164,8 @@ def init_model(type, in_channels, out_channels, **kwargs):
         return GraphSAGE(in_channels, out_channels, num_layers=5)
     elif type == 'neuralop':
         return KernelNN(width=kwargs['width'], ker_width=kwargs['width'], depth=kwargs['num_layers'], in_width=in_channels, out_width=out_channels)
+    elif type == 'fno1d':
+        return NeuralOperator(in_channels, out_channels, **kwargs)
     else:
         raise ValueError(f'Invalid model type: {type}')
     
@@ -179,6 +181,8 @@ def init_dataset(name, **kwargs):
         return JHTDB_BOUNDARY(**kwargs)
     elif name == 'duct':
         return DuctAnalysisDataset(**kwargs)
+    elif name == 'helmholtz':
+        return ToyHelmholtz1D(**kwargs)
     else:
         raise ValueError(f'Invalid dataset name: {name}')
 

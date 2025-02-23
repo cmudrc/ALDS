@@ -819,3 +819,43 @@ class KernelNN(torch.nn.Module):
 
         x = self.fc2(x)
         return x
+    
+
+class SpectralConv1d(nn.Module):
+    def __init__(self, modes, in_channels, out_channels):
+        super(SpectralConv1d, self).__init__()
+        self.modes = modes
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.weights = nn.Parameter(
+            torch.randn(in_channels, out_channels, modes, dtype=torch.cfloat)
+        )
+
+    def forward(self, x):
+        # Compute Fourier coefficients
+        x_ft = torch.fft.rfft(x, dim=-1)
+        # Apply learned weights to the first 'modes' frequencies
+        out_ft = torch.zeros_like(x_ft, dtype=torch.cfloat)
+        out_ft[..., :self.modes] = torch.einsum("bix,iox->box", x_ft[..., :self.modes], self.weights)
+        # Transform back to physical space
+        x = torch.fft.irfft(out_ft, n=x.size(-1), dim=-1)
+        return x
+
+# Neural operator model
+class NeuralOperator(nn.Module):
+    def __init__(self, in_channels, out_channels, modes, width, **kwargs):
+        super(NeuralOperator, self).__init__()
+        self.spectral_conv = SpectralConv1d(modes, width, width)
+        self.fc_in = nn.Linear(in_channels, width)
+        self.fc_out = nn.Linear(width, out_channels)
+
+    def forward(self, x):
+        # Project input to higher dimensions
+        x = self.fc_in(x.unsqueeze(-1))
+        x = x.permute(0, 2, 1)  # Change shape to (batch_size, channels, points)
+        # Apply spectral convolution
+        x = self.spectral_conv(x)
+        x = x.permute(0, 2, 1)  # Back to (batch_size, points, channels)
+        # Project back to original dimensions
+        x = self.fc_out(x).squeeze(-1)
+        return x

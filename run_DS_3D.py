@@ -1,9 +1,10 @@
 from models.scheduler_gnn import GNNPartitionScheduler
 from utils import *
-import torch
+
 import os
 from sklearn.metrics import r2_score
-import wandb
+
+import time
 
 
 def train_graph_ALDD(exp_name, encoder, classifier, model, dataset, num_partitions, train_config, **kwargs):
@@ -14,33 +15,35 @@ def pred_graph_ALDD(idxs, exp_name, encoder, classifier, model, dataset, num_par
     scheduler = GNNPartitionScheduler(exp_name, num_partitions, dataset, encoder, classifier, model, train=False)
     for idx in idxs:
         x = dataset.get_one_full_sample(idx)
+
+        time_start = time.time()
         pred_y_list = scheduler.predict(x)
+        time_end = time.time()
+
+        print(f'Prediction time: {time_end - time_start}')
         
+        time_start = time.time()
         pred_y = dataset.reconstruct_from_partition(pred_y_list)
-        pred_y.pred = pred_y.x
+        time_end = time.time()
 
-        original_mesh_data = torch.load(f'data/Duct/processed/data.pt')
-        graph_data = original_mesh_data[0]
-        pred_y.edge_index = graph_data.edge_index
-        pred_y.edge_attr = graph_data.edge_attr
+        print(f'Reconstruction time: {time_end - time_start}')
+        # pred_y.pred = pred_y.x
 
-        plot_3d_prediction(pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/timestep_{idx}')
-
-        r2_scores = r2_score(pred_y.x.flatten().cpu().detach().numpy(), pred_y.y.flatten().cpu().detach().numpy())
-        os.makedirs(f'logs/vtk/{exp_name}', exist_ok=True)
-        convert_pyg_to_vtk(pred_y, f'logs/vtk/{exp_name}/timestep_{idx}.vtk')
         # save the prediction
-        os.makedirs(f'logs/raw_data/{exp_name}', exist_ok=True)
-        torch.save(pred_y, f'logs/raw_data/{exp_name}/pred_timestep_{idx}.pth')
+        os.makedirs(f'logs/vtk/{exp_name}', exist_ok=True)
+        writer = vtk.vtkXMLUnstructuredGridWriter()
+        writer.SetFileName(f'logs/vtk/{exp_name}/pred_timestep_{idx}.vtu')
+        writer.SetInputData(pred_y)
+        writer.Write()
+
         # torch.save(sub_y, f'logs/raw_data/{exp_name}/gt_timestep_{idx}.pth')
-        if save_mode == 'wandb':
-            wandb.log({'r2_score': r2_scores})
-        print(f'Prediction for done!')
+        print(f'Prediction done!')
 
 
 if __name__ == '__main__':
     # dataset = CoronaryArteryDataset(root='data/coronary', partition=True, sub_size=5)
     # dataset = DuctAnalysisDataset(root='data/Duct', partition=True, sub_size=0.03)
+    # MPI.Init()
     args = parse_args()
     run_mode = args.mode
     encoder_name = args.encoder

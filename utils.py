@@ -9,17 +9,13 @@ from models.model import *
 from dataset.MatDataset import *
 from dataset.GraphDataset import *
 # from torch_geometric.data import Data
-import torch_geometric as pyg
 from torch_geometric.nn import GraphSAGE
 import yaml
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from itertools import combinations
 import wandb
 from numba import jit
 import vtk
-from vtk import vtkUnstructuredGrid, vtkPoints, vtkCellArray, vtkXMLUnstructuredGridWriter, vtkTetra, vtkHexahedron
-import networkx as nx
 
 
 def load_yaml(path):

@@ -1,22 +1,22 @@
 import os
 import meshio
 # os.environ['HDF5_DISABLE_VERSION_CHECK'] = '2' # Only add this for TRACE to work, comment out for other cases! 
-
+import time
 import torch
 import numpy as np
-import random
+from scipy.spatial import KDTree
+from joblib import Parallel, delayed
+import tqdm
 import vtk
 from vtk import vtkFLUENTReader
 from collections import deque
 import pandas as pd
 # import multiprocessing as mp
-from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 import torch_geometric as pyg
 from torch_geometric.data import Data, InMemoryDataset
 # from torch_geometric.loader import DataLoader
 from torch_geometric.utils import subgraph
-from scipy.spatial import Delaunay, KDTree 
-import multiprocessing as mp
+import h5py
 
 
 class GenericGraphDataset(InMemoryDataset):
@@ -292,16 +292,35 @@ class CoronaryArteryDataset(GenericGraphDataset):
 class DuctAnalysisDataset(GenericGraphDataset):
     def __init__(self, root, transform=None, pre_transform=None, partition=False, **kwargs):
         super(DuctAnalysisDataset, self).__init__(root, transform, pre_transform, partition, **kwargs)
+        self.partition = partition
         # self.raw_file_names = [os.path.join(self.raw_dir, f) for f in os.listdir(self.raw_dir) if f.endswith('.mat')]
 
     def download(self):
         pass
 
     def len(self):
-        return len(self._data)
+        # return the number of samples in the dataset
+        if not self.partition:
+            return len(self._data)
+        else:
+            # return the number of subdomains in the h5 file
+            with h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'r') as f:
+                return len(f.keys())
     
     def get(self, idx):
-        return self._data[idx]
+        if not self.partition:
+            return self._data[idx]
+        else:
+            with h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'r') as f:
+                group = f[f'subdomain_{idx}']
+                x = torch.tensor(np.array(group['x']), dtype=torch.float)
+                y = torch.tensor(np.array(group['y']), dtype=torch.float)
+                pos = torch.tensor(np.array(group['pos']), dtype=torch.float)
+                edge_index = torch.tensor(np.array(group['edge_index']), dtype=torch.long)
+                edge_attr = torch.tensor(np.array(group['edge_attr']), dtype=torch.float)
+
+                data = Data(x=x, y=y, pos=pos, edge_index=edge_index, edge_attr=edge_attr)
+                return data
 
     @property
     def raw_file_names(self):
@@ -327,8 +346,10 @@ class DuctAnalysisDataset(GenericGraphDataset):
         """
         for i in range(multi_block.GetNumberOfBlocks()):
             block = multi_block.GetBlock(i)
+            # if the block metadata contains interior, return the body mesh block
             if isinstance(block, vtk.vtkUnstructuredGrid):
-                return block
+                if multi_block.GetMetaData(i).Get(vtk.vtkCompositeDataSet.NAME()) == "interior:interior-fluid":
+                    return block
         raise ValueError("No vtkUnstructuredGrid found in the .msh file.")
     
     @staticmethod
@@ -357,7 +378,11 @@ class DuctAnalysisDataset(GenericGraphDataset):
 
         # Step 2: Extract edges from cell connectivity
         edge_set = set()
+        # print warning if no cell is found
+        if data.GetNumberOfCells() == 0:
+            raise ValueError("No valid mesh data found in the given mesh.")
         for i in range(data.GetNumberOfCells()):
+            # print warning if no cell is found
             cell = data.GetCell(i)
             num_cell_points = cell.GetNumberOfPoints()
 
@@ -372,8 +397,21 @@ class DuctAnalysisDataset(GenericGraphDataset):
 
         return Data(pos=pos, edge_index=edge_index)
 
-    @staticmethod
-    def _process_file(path_list):
+    def _map_physics_data_to_mesh(self, mesh, physics_points):
+        """
+        Map the physics data to the mesh nodes based on the coordinates using parallel processing.
+        """
+        num_points = mesh.GetNumberOfPoints()
+        mesh_points = np.array([mesh.GetPoint(i) for i in range(num_points)])  # Convert mesh points to NumPy array
+        
+        tree = KDTree(physics_points)  # Build KDTree for fast lookup
+        print("Building KDTree for fast lookup...")
+        # Parallelized lookup
+        _, nearest_indices = tree.query(mesh_points, workers=16)
+        print("Parallelized KDTree lookup complete.")
+        return nearest_indices.astype(np.int64)
+
+    def _process_file(self, path_list):
         data_list = []
         # mesh_idx = ['High', 'Med', 'Low']
         # process mesh files
@@ -385,7 +423,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
             # Extract mesh from VTK output
             dataset = reader.GetOutput()
 
-            mesh = DuctAnalysisDataset.extract_unstructured_grid(dataset)
+            mesh = self.extract_unstructured_grid(dataset)
             num_points = mesh.GetNumberOfPoints()
             num_cells = mesh.GetNumberOfCells()
 
@@ -393,7 +431,7 @@ class DuctAnalysisDataset(GenericGraphDataset):
                 raise ValueError("No valid mesh data found in the .msh file.")
 
             try:
-                wall_mesh = DuctAnalysisDataset.extract_wall_block(dataset)
+                wall_mesh = self.extract_wall_block(dataset)
                 wall_indices = set()
 
                 for i in range(wall_mesh.GetNumberOfCells()):
@@ -410,40 +448,50 @@ class DuctAnalysisDataset(GenericGraphDataset):
             # process physics files
             # print(path_list[idx+3])
             physics = pd.read_csv(path_list[idx+3], sep=',')
+            physics_points = np.vstack((physics['    x-coordinate'], 
+                                        physics['    y-coordinate'], 
+                                        physics['    z-coordinate'])).T
+
             # print(physics)
             velocity_x = torch.tensor(physics['      x-velocity'], dtype=torch.float).unsqueeze(1)
             velocity_y = torch.tensor(physics['      y-velocity'], dtype=torch.float).unsqueeze(1)
             velocity_z = torch.tensor(physics['      z-velocity'], dtype=torch.float).unsqueeze(1)
-            velocity = torch.cat([velocity_x, velocity_y, velocity_z], dim=1)
+            # velocity = torch.cat([velocity_x, velocity_y, velocity_z], dim=1)
             # normalize the velocity to be in the range of [0, 1]
-            velocity = velocity / torch.max(torch.abs(velocity))
 
             pressure = torch.tensor(physics['        pressure'], dtype=torch.float).unsqueeze(1)
             # normalize the pressure
             pressure = pressure / torch.max(pressure)
-            # check if nan exists in the physics data
-            if torch.isnan(velocity).sum() > 0 or torch.isnan(pressure).sum() > 0:
-                print('nan exists in original physics data')
 
+            physics_map = self._map_physics_data_to_mesh(mesh, physics_points)
+
+            # reorganize the physics data according to the mesh node id
+            velocity_x = velocity_x[physics_map]
+            velocity_y = velocity_y[physics_map]
+            velocity_z = velocity_z[physics_map]
+            velocity = torch.cat([velocity_x, velocity_y, velocity_z], dim=1)
+            pressure = pressure[physics_map]
+
+            del physics_points, physics_map
+
+            velocity = velocity / torch.max(torch.abs(velocity))
             # create a torch_geometric.data.Data object if the mesh is of high resolution
             if idx == 0:
                 mesh_high = mesh
-                data = DuctAnalysisDataset.vtk_to_pyg(mesh)
+                data = self.vtk_to_pyg(mesh)
                 data.y = torch.cat([velocity, pressure], dim=1)
                 data.wall_idx = wall_index_tensor
                 data_list.append(data)
             else:
                 # call lagrangian interpolation to interpolate the physics data to the high resolution mesh
-                velocity_x_high = DuctAnalysisDataset._lagrangian_interpolation(mesh, velocity_x, mesh_high)
-                velocity_y_high = DuctAnalysisDataset._lagrangian_interpolation(mesh, velocity_y, mesh_high)
-                velocity_z_high = DuctAnalysisDataset._lagrangian_interpolation(mesh, velocity_z, mesh_high)
-                pressure_high = DuctAnalysisDataset._lagrangian_interpolation(mesh, pressure, mesh_high)
+                velocity_x_high = self._lagrangian_interpolation(mesh, velocity_x, mesh_high)
+                velocity_y_high = self._lagrangian_interpolation(mesh, velocity_y, mesh_high)
+                velocity_z_high = self._lagrangian_interpolation(mesh, velocity_z, mesh_high)
+                pressure_high = self._lagrangian_interpolation(mesh, pressure, mesh_high)
 
                 velocity_high = torch.cat([velocity_x_high, velocity_y_high, velocity_z_high], dim=1)
-                velocity_high = torch.tensor(velocity_high, dtype=torch.float)
                 # normalize the velocity
                 velocity_high = velocity_high / torch.max(torch.abs(velocity_high))
-                pressure_high = torch.tensor(pressure_high, dtype=torch.float)
                 # normalize the pressure
                 pressure_high = pressure_high / torch.max(pressure_high)
                 # check if nan exists in the interpolated physics data
@@ -514,8 +562,8 @@ class DuctAnalysisDataset(GenericGraphDataset):
         
         :param data: the original domain stored in a torch_geometric.data.Data object. 
         """
-        if os.path.exists(os.path.join(self.root, 'partition', 'data.pt')):
-            subdomains = torch.load(os.path.join(self.root, 'partition', 'data.pt'), map_location=torch.device('cpu'))
+        if os.path.exists(os.path.join(self.root, 'partition', 'data.h5')):
+            pass
         else:
             os.makedirs(os.path.join(self.root, 'partition'), exist_ok=True)
             reader = vtkFLUENTReader()
@@ -525,14 +573,56 @@ class DuctAnalysisDataset(GenericGraphDataset):
             data = data[0]
             x, y, pos = data.x, data.y, data.pos
             num_subdomains = self.sub_size
-            subdomains = self._get_partition_domain(mesh, x, y, pos, num_subdomains)
+            self._get_partition_domain(mesh, x, y, pos, num_subdomains)
+    
+    def visualize_partitioned_dataset(self, partitioned_dataset):
+        """
+        Visualizes a `vtkPartitionedDataSet`, with different colors for each partition.
 
-            torch.save(subdomains, os.path.join(self.root, 'partition', 'data.pt'))
-        return subdomains
+        Args:
+            partitioned_dataset (vtk.vtkPartitionedDataSet): The partitioned dataset from vtkRedistributeDataSetFilter.
+        """
+        num_partitions = partitioned_dataset.GetNumberOfPartitions()
 
+        # Set up the renderer
+        renderer = vtk.vtkRenderer()
+        renderer.SetBackground(0.1, 0.1, 0.1)  # Dark background
 
-    @staticmethod
-    def _get_partition_domain(mesh, x, y, pos, num_subdomains):
+        for i in range(num_partitions):
+            partition = partitioned_dataset.GetPartition(i)
+            if not partition:
+                continue
+
+            # Convert partition to PolyData for visualization
+            geometry_filter = vtk.vtkGeometryFilter()
+            geometry_filter.SetInputData(partition)
+            geometry_filter.Update()
+
+            # Assign a unique color
+            r, g, b = vtk.vtkMath.Random(0, 1), vtk.vtkMath.Random(0, 1), vtk.vtkMath.Random(0, 1)
+            mapper = vtk.vtkPolyDataMapper()
+            mapper.SetInputData(geometry_filter.GetOutput())
+
+            actor = vtk.vtkActor()
+            actor.SetMapper(mapper)
+            actor.GetProperty().SetColor(r, g, b)
+
+            renderer.AddActor(actor)
+
+        # Set up the render window
+        render_window = vtk.vtkRenderWindow()
+        render_window.AddRenderer(renderer)
+        render_window.SetSize(800, 600)
+
+        # Set up the interactive window
+        interactor = vtk.vtkRenderWindowInteractor()
+        interactor.SetRenderWindow(render_window)
+
+        # Render and start interaction
+        render_window.Render()
+        interactor.Start()
+    
+    def _get_partition_domain(self, mesh, x, y, pos, num_subdomains):
         """
         Perform domain decomposition on a VTK unstructured mesh and associated physics data.
         Uses METIS-based partitioning without explicit graph conversion.
@@ -546,148 +636,156 @@ class DuctAnalysisDataset(GenericGraphDataset):
             subdomain_meshes (list of vtkUnstructuredGrid): Decomposed sub-meshes.
             subdomain_physics (list of np.ndarray): Physics properties for each subdomain.
         """
+        # Initialize VTK MPI controller (Required for distributed processing)
+        controller = vtk.vtkMultiProcessController.GetGlobalController()
+        # Check if MPI is available
+        if not controller or controller.GetNumberOfProcesses() <= 1:
+            print("Warning: Running in serial mode. No MPI parallelism available.")
+            controller = vtk.vtkDummyController()
+
+        # generate global node IDs
+        mesh = self.assign_global_node_id(mesh)
+
+        # Set up the distributed data filter
+        distributed_filter = vtk.vtkRedistributeDataSetFilter()
+        distributed_filter.SetController(controller)
+
+        distributed_filter.SetInputData(mesh)
+        distributed_filter.SetPreservePartitionsInOutput(True)
+
+        # set up the number of partitions
+        distributed_filter.SetNumberOfPartitions(num_subdomains)
+        progress_observer = vtk.vtkProgressObserver()
+        distributed_filter.AddObserver(vtk.vtkCommand.ProgressEvent, progress_observer)
+
+        distributed_filter.SetBoundaryModeToAssignToAllIntersectingRegions()
+
+        # Ensure the input data is correctly assigned
+        distributed_filter.SetInputData(mesh)
+
+        # Execute the partitioning
+        distributed_filter.UpdateInformation()
+        distributed_filter.Modified()
+        distributed_filter.Update()
+
+        # Retrieve partitioned mesh
+        partitioned_mesh = distributed_filter.GetOutput()
+
+        # save the partitioned mesh
+        writer = vtk.vtkXMLPartitionedDataSetWriter()
+        writer.SetFileName(os.path.join(self.root, 'partition', 'partitioned_mesh.vtpd'))
+        writer.SetInputData(partitioned_mesh)
+        writer.Write()
+
+        # Visualize the partitioned mesh
+        # self.visualize_partitioned_dataset(partitioned_mesh)
+
+        controller.Finalize()
+
+        num_partitions = partitioned_mesh.GetNumberOfPartitions()
+        print(f"Partitioned mesh into {num_partitions} subdomains.")
+        # update self.sub_size
+        self.sub_size = num_partitions
+
+        with h5py.File(os.path.join(self.root, 'partition', 'data.h5'), 'w') as f:
+            for i in tqdm.tqdm(range(num_partitions), desc="Processing Subdomains"):
+                partition = partitioned_mesh.GetPartition(i)
+                if not partition:
+                    print(f"Warning: Partition {i} is empty. Skipping.")
+                    continue
+
+                node_id_array = partition.GetPointData().GetArray("GlobalNodeID")
+                if node_id_array is None:
+                    print(f"Error: Partition {i} missing GlobalNodeID. Skipping.")
+                    continue
+
+                global_node_ids = np.array([node_id_array.GetValue(j) for j in range(node_id_array.GetNumberOfValues())])
+                sub_x = x[global_node_ids]
+                sub_y = y[global_node_ids]
+                sub_pos = pos[global_node_ids]
+
+                subdomain_data = self.vtk_to_pyg(partition)
+                # set edge_attr as edge length
+                edge_attr = np.linalg.norm(sub_pos[subdomain_data.edge_index[0]] - sub_pos[subdomain_data.edge_index[1]], axis=1)
+
+                group = f.create_group(f'subdomain_{i}')
+                group.create_dataset('x', data=sub_x)
+                group.create_dataset('y', data=sub_y)
+                group.create_dataset('pos', data=sub_pos)
+                group.create_dataset('edge_index', data=subdomain_data.edge_index.numpy())
+                group.create_dataset('edge_attr', data=edge_attr)
+
+        print("Partitioning complete.")
+
+    # been overwritten by the filter. will get deprecated
+    def assign_global_node_id(self, mesh):
+        """
+        Assigns a global node ID to each point in a VTK unstructured grid.
+        """
         num_points = mesh.GetNumberOfPoints()
-        num_cells = mesh.GetNumberOfCells()
+        global_node_ids = np.arange(num_points)
+        global_node_id_array = vtk.vtkIntArray()
+        global_node_id_array.SetName("GlobalNodeID")
+        global_node_id_array.SetNumberOfComponents(1)
+        global_node_id_array.SetNumberOfValues(num_points)
 
-        if num_points == 0 or num_cells == 0:
-            raise ValueError("The input mesh is empty.")
+        for i in range(num_points):
+            global_node_id_array.SetValue(i, global_node_ids[i])
 
-        if x.shape[0] != num_points:
-            raise ValueError("Mismatch: physics array length must match the number of points in the mesh.")
+        mesh.GetPointData().AddArray(global_node_id_array)
+        mesh.GetPointData().SetActiveScalars("GlobalNodeID")
 
-        # Step 1: Compute cell centroids
-        cell_centroids = np.zeros((num_cells, 3))
-        for i in range(num_cells):
-            cell = mesh.GetCell(i)
-            num_cell_points = cell.GetNumberOfPoints()
-            centroid = np.mean([mesh.GetPoint(cell.GetPointId(j)) for j in range(num_cell_points)], axis=0)
-            cell_centroids[i] = centroid
-
-        # Step 2: Select initial cluster centers using k-means++ style sampling
-        initial_centers = [random.randint(0, num_cells - 1)]  # Start with a random cell
-        for _ in range(1, num_subdomains):
-            dists = np.min([np.linalg.norm(cell_centroids - cell_centroids[c], axis=1) for c in initial_centers], axis=0)
-            new_center = np.argmax(dists)  # Choose the farthest point
-            initial_centers.append(new_center)
-
-        # Step 3: Region Growing using BFS
-        cell_labels = -np.ones(num_cells, dtype=int)  # -1 means unassigned
-        frontier = {i: deque([c]) for i, c in enumerate(initial_centers)}
-
-        for i, c in enumerate(initial_centers):
-            cell_labels[c] = i  # Assign initial centers
-
-        # Build cell adjacency list
-        cell_adjacency = {i: set() for i in range(num_cells)}
-
-        for i in range(num_cells):
-            cell = mesh.GetCell(i)
-            for j in range(cell.GetNumberOfPoints()):
-                point_id = cell.GetPointId(j)
-                for k in range(num_cells):
-                    if k == i:
-                        continue
-                    if point_id in [mesh.GetCell(k).GetPointId(m) for m in range(mesh.GetCell(k).GetNumberOfPoints())]:
-                        cell_adjacency[i].add(k)
-
-        # Grow clusters until all cells are assigned
-        while any(len(q) > 0 for q in frontier.values()):
-            for i in range(num_subdomains):
-                if frontier[i]:
-                    current_cell = frontier[i].popleft()
-                    for neighbor in cell_adjacency[current_cell]:
-                        if cell_labels[neighbor] == -1:  # Unassigned cell
-                            cell_labels[neighbor] = i
-                            frontier[i].append(neighbor)
-
-        # Step 4: Extract Sub-Meshes and Physics Data
-        subdomain_dataset = []
-
-        for i in range(num_subdomains):
-            submesh = vtk.vtkUnstructuredGrid()
-            sub_points = vtk.vtkPoints()
-            sub_cells = vtk.vtkCellArray()
-
-            point_map = {}  # Map original point IDs to new submesh point IDs
-            sub_x = []
-            sub_y = []
-            sub_pos = []
-
-            for cell_id in range(num_cells):
-                if cell_labels[cell_id] == i:
-                    cell = mesh.GetCell(cell_id)
-                    new_cell_points = []
-
-                    for j in range(cell.GetNumberOfPoints()):
-                        point_id = cell.GetPointId(j)
-                        if point_id not in point_map:
-                            new_id = sub_points.InsertNextPoint(mesh.GetPoint(point_id))
-                            point_map[point_id] = new_id
-                            sub_x.append(x[point_id])
-                            sub_y.append(y[point_id])
-                            sub_pos.append(pos[point_id])
-
-                        new_cell_points.append(point_map[point_id])
-
-                    # Create VTK cell and add to the submesh
-                    sub_cells.InsertNextCell(len(new_cell_points), new_cell_points)
-
-            submesh.SetPoints(sub_points)
-            submesh.SetCells(mesh.GetCellType(0), sub_cells)
-
-
-            subdomain_data = DuctAnalysisDataset.vtk_to_pyg(submesh)
-            subdomain_data.x = torch.tensor(sub_x, dtype=torch.float).squeeze(1)
-            subdomain_data.y = torch.tensor(sub_y, dtype=torch.float).squeeze(1)
-            subdomain_data.pos = torch.tensor(sub_pos, dtype=torch.float).squeeze(1)
-
-            subdomain_dataset.append(subdomain_data)
-
-        return subdomain_dataset
+        return mesh
     
-    @staticmethod
-    def reconstruct_from_partition(subdomains):
+    def reconstruct_from_partition(self, subdomain_data_list):
         """
         reconstructs the original domain from a partitioned collection of subdomains
         
         :param subdomains: a list of subdomains, each stored in a torch_geometric.data.Data object
         """
-        # concatenate all subdomains
-        data = Data()
-        # arrange data.x of subdomains according to the global node id
-        global_node_id = torch.cat([subdomain.global_node_id for subdomain in subdomains], dim=0)
-        global_node_id = global_node_id.unique()
-        global_node_id = global_node_id[global_node_id != -1]
-        # node_map = dict(zip(global_node_id.numpy(), range(global_node_id.size(0)))
-        x = torch.cat([subdomain.x for subdomain in subdomains], dim=0)
-        x = x[global_node_id]
-        # arrange data.y of subdomains according to the global node id
-        y = torch.cat([subdomain.y for subdomain in subdomains], dim=0)
-        y = y[global_node_id]
-        # arrange data.pos of subdomains according to the global node id
-        pos = torch.cat([subdomain.pos for subdomain in subdomains], dim=0)
-        pos = pos[global_node_id]
-        # arrange data.edge_index of subdomains according to the global node id
-        # edge_index = torch.cat([subdomain.edge_index for subdomain in subdomains], dim=1)
-        # edge_index = edge_index[:, edge_index[0].argsort()]
-        # edge_index = edge_index[:, edge_index[1].argsort()]
-        # edge_index = edge_index[:, edge_index[0] != -1]
-        # edge_index = edge_index[:, edge_index[1] != -1]
-        # edge_index = edge_index[:, edge_index[0] != edge_index[1]]
-        # # arrange data.edge_attr of subdomains according to the global node id
-        # edge_attr = torch.cat([subdomain.edge_attr for subdomain in subdomains], dim=0)
-        # edge_attr = edge_attr[edge_index[0]]
-        
-        data.x = x
-        data.y = y
-        data.pos = pos
-        # data.edge_index = edge_index
-        # data.edge_attr = edge_attr
+        # load the partitioned data
+        reader = vtk.vtkXMLPartitionedDataSetReader()
+        reader.SetFileName(os.path.join(self.root, 'partition', 'partitioned_mesh.vtpd'))
+        reader.Update()
 
-        return data
+        partitioned_mesh = reader.GetOutput()
+
+        append_filter = vtk.vtkAppendDataSets()
+        num_partitions = partitioned_mesh.GetNumberOfPartitions()
+
+        for i in range(num_partitions):
+            partition = partitioned_mesh.GetPartition(i)
+            velocity_array = vtk.vtkFloatArray()
+            pressure_array = vtk.vtkFloatArray()
+            velocity_array.SetName("velocity")
+            pressure_array.SetName("pressure")
+            velocity_array.SetNumberOfComponents(3)
+            pressure_array.SetNumberOfComponents(1)
+
+            for row in subdomain_data_list[i][:, :3].numpy():
+                velocity_array.InsertNextTuple3(row[0], row[1], row[2])
+            for value in subdomain_data_list[i][:, 3].numpy():
+                pressure_array.InsertNextTuple1(value)
+
+            partition.GetPointData().AddArray(velocity_array)
+            partition.GetPointData().AddArray(pressure_array)
+
+            if not partition:
+                print(f"Warning: Partition {i} is empty. Skipping.")
+                continue
+
+            # Create a VTK unstructured grid from the subdomain data
+            append_filter.AddInputData(partition)
+
+        append_filter.Update()
+        
+        reconstructed_mesh = append_filter.GetOutput()
+
+        return reconstructed_mesh
+
     
     def get_one_full_sample(self, idx):
-        return self.data
+        return self
     
 
 class SubGraphDataset(InMemoryDataset):
@@ -698,3 +796,15 @@ class SubGraphDataset(InMemoryDataset):
 
         self.data = torch.load(os.path.join(self.root, 'processed', 'data.pt'))
         self.data = [self.data[i] for i in self.indices]
+
+
+class ProgressObserver:
+    """Observer class to track VTK filter progress."""
+    def __init__(self):
+        self.progress = 0
+
+    def __call__(self, caller, event):
+        """Handles progress update events."""
+        if isinstance(caller, vtk.vtkDistributedDataFilter):
+            self.progress = caller.GetProgress() * 100
+            print(f"\rPartitioning Progress: {self.progress:.2f}%", end="", flush=True)

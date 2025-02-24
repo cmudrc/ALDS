@@ -12,7 +12,7 @@ from sklearn.metrics import r2_score
 from joblib import dump, load
 import wandb
 from dataset.MatDataset import Sub_JHTDB
-from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, wait, ALL_COMPLETED
 from models.model import *
 
 
@@ -254,7 +254,7 @@ class PartitionScheduler():
             # assign model and corresponding data to different gpus and predict in parallel
             for num_execs in range(num_subsets // torch.cuda.device_count() + 1):
                 exec_list = []
-                with ThreadPoolExecutor(max_workers=torch.cuda.device_count()) as executor:
+                with ProcessPoolExecutor(max_workers=torch.cuda.device_count()) as executor:
                     for i, device in enumerate(device_list):
                         idx = num_execs * torch.cuda.device_count() + i
                         if idx >= num_subsets:

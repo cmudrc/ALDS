@@ -834,12 +834,15 @@ class SpectralConv1d(nn.Module):
     def forward(self, x):
         # Compute Fourier coefficients
         x_ft = torch.fft.rfft(x, dim=-1)
+        print("x_ft shape:", x_ft[..., :self.modes].shape)  # Should be (batch, in_channels, modes)
+        print("weights shape:", self.weights.shape)  # Should be (in_channels, out_channels, modes)
         # Apply learned weights to the first 'modes' frequencies
         out_ft = torch.zeros_like(x_ft, dtype=torch.cfloat)
         out_ft[..., :self.modes] = torch.einsum("bix,iox->box", x_ft[..., :self.modes], self.weights)
         # Transform back to physical space
         x = torch.fft.irfft(out_ft, n=x.size(-1), dim=-1)
         return x
+
 
 # Neural operator model
 class NeuralOperator(nn.Module):
@@ -850,8 +853,10 @@ class NeuralOperator(nn.Module):
         self.fc_out = nn.Linear(width, out_channels)
 
     def forward(self, x):
+        print(x.shape)
         # Project input to higher dimensions
-        x = self.fc_in(x.unsqueeze(-1))
+        # x = self.fc_in(x.unsqueeze(-1))
+        # print(x.shape)
         x = x.permute(0, 2, 1)  # Change shape to (batch_size, channels, points)
         # Apply spectral convolution
         x = self.spectral_conv(x)

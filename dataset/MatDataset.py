@@ -21,7 +21,13 @@ import torch.nn.functional as F
 class ToyHelmholtz1D(Dataset):
     def __init__(self, root, freq_bandwidth=(0.1, 0.5), num_samples=1000, num_points=64, partition=False, **kwargs):
         self.root = root
-        os.makedirs(self.root, exist_ok=True)
+        self.processed_dir = os.path.join(self.root, 'processed')
+        self.raw_dir = os.path.join(self.root, 'raw')
+        if not os.path.exists(self.processed_dir):
+            os.makedirs(self.processed_dir)
+        if not os.path.exists(self.raw_dir):
+            os.makedirs(self.raw_dir)
+        # os.makedirs(os.makedirs(os.path.join(self.root, 'partition'), exist_ok=True))
         self.dataset = self._generate_helmholtz_data(freq_bandwidth=freq_bandwidth, num_samples=num_samples, num_points=num_points)
         self.data = self.dataset
         if partition:
@@ -34,20 +40,24 @@ class ToyHelmholtz1D(Dataset):
         # if x is a tuple, extract the data
         if isinstance(x, tuple):
             data, label = x
-        num_partitions_dim = data // self.sub_size
+        num_partitions_dim = len(data) // self.sub_size
 
         for i in range(num_partitions_dim):
             if isinstance(x, tuple):
-                x_list.append((data[:, i*self.sub_size:(i+1)*self.sub_size], label[:, i*self.sub_size:(i+1)*self.sub_size]))
+                x_list.append((data[i*self.sub_size:(i+1)*self.sub_size], label[i*self.sub_size:(i+1)*self.sub_size]))
             else:
-                x_list.append(data[:, i*self.sub_size:(i+1)*self.sub_size])
+                x_list.append(data[i*self.sub_size:(i+1)*self.sub_size])
         return x_list
     
     def get_partition_domain(self, dataset):
+        if os.path.exists(os.path.join(self.processed_dir, 'data.pt')):
+            return torch.load(os.path.join(self.processed_dir, 'data.pt'))
         # add all the partitioned subdomains to the dataset
         data_list = []
         for data in dataset:
-            data_list.append(self._get_partition_domain(data))
+            data_list.extend(self._get_partition_domain(data))
+
+        torch.save(data_list, os.path.join(self.processed_dir, 'data.pt'))
         return data_list
     
     def reconstruct_from_partitions(self, x, x_list):
@@ -59,10 +69,10 @@ class ToyHelmholtz1D(Dataset):
 
         return x
 
-    def _generate_helmholtz_data(self, freq_bandwidth, num_samples=1000, num_points=80, num_segments=10):
-        if os.path.exists(os.path.join(self.root, 'helmholtz_data.pt')):
-            return torch.load(os.path.join(self.root, 'helmholtz_data.pt'))
-        x = np.linspace(0, 1, num_points)  # Spatial domain
+    def _generate_helmholtz_data(self, freq_bandwidth, num_samples=1000, num_points=400, num_segments=10):
+        if os.path.exists(os.path.join(self.raw_dir, 'data.pt')):
+            return torch.load(os.path.join(self.raw_dir, 'data.pt'))
+        x = np.linspace(0, 10, num_points)  # Spatial domain
         segment_size = num_points // num_segments  # Number of points per segment
         data = []
         for _ in range(num_samples):
@@ -82,9 +92,12 @@ class ToyHelmholtz1D(Dataset):
             f = np.sin(2 * np.pi * k_x * x)  # Forcing term
             u = np.sin(2 * np.pi * k_x * x) / (1 + (2 * np.pi * k_x)**2)  # Solution
 
+            f = torch.tensor(f, dtype=torch.float)
+            u = torch.tensor(u, dtype=torch.float)
+
             data.append((f, u))
 
-        torch.save(data, os.path.join(self.root, 'helmholtz_data.pt'))
+        torch.save(data, os.path.join(self.raw_dir, 'data.pt'))
         return data
     
     def __len__(self):
@@ -502,8 +515,8 @@ class Sub_JHTDB(Dataset):
     def __init__(self, root, indices):
         self.root = root
         # verify that JHTDB data is correctly processed
-        if not os.path.exists(os.path.join(self.root, 'processed', 'data.pt')):
-            raise ValueError('JHTDB data is not processed yet')
+        # if not os.path.exists(os.path.join(self.root, 'processed', 'data.pt')):
+        #     raise ValueError('JHTDB data is not processed yet')
         self.indices = indices
 
         self.data = torch.load(os.path.join(self.root, 'processed', 'data.pt'))

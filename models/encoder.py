@@ -321,9 +321,9 @@ class SpectrumEncoder(Encoder):
         # determine if the dataset is a torch matrix dataset or a torch_geometric dataset
         # if type(dataset[0][0]) == list:
         try:
-            dataset = [[data[0][0][:, :, 0], self.domain_size, self.domain_size] for data in dataset]
+            dataset = [[data[0][0][:, :, 0].numpy(), self.domain_size, self.domain_size] for data in dataset]
         except:
-            dataset = [[data[0], self.domain_size, self.domain_size] for data in dataset]
+            dataset = [[data[0].numpy(), self.domain_size.numpy(), self.domain_size] for data in dataset]
         with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
             latent_space = list(executor.map(self._compute_tke_spectrum, dataset))
 
@@ -346,7 +346,7 @@ class SpectrumEncoder(Encoder):
         # domain_size_list = [self.domain_size for _ in range(len(x))]
         # time_sep = time()
         # print(f'Time to separate data: {time_sep - time_start}')
-        with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+        with ProcessPoolExecutor(max_workers=16) as executor:
             latent_space = list(executor.map(self._compute_tke_spectrum, x))
             # latent_space = p.starmap(self._compute_tke_spectrum, zip(x, domain_size_list, domain_size_list))
         # time_end = time()

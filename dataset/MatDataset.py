@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import scipy.io
 import ctypes
+from dolfin import *
 import h5py
 import shutil
 # import pyJHTDB
@@ -19,7 +20,7 @@ import torch.nn.functional as F
 
 
 class ToyHelmholtz1D(Dataset):
-    def __init__(self, root, freq_bandwidth=(0.1, 0.5), num_samples=1000, num_points=64, partition=False, **kwargs):
+    def __init__(self, root, freq_bandwidth=(0.1, 20), num_samples=1000, num_points=400, partition=False, **kwargs):
         self.root = root
         self.processed_dir = os.path.join(self.root, 'processed')
         self.raw_dir = os.path.join(self.root, 'raw')
@@ -49,7 +50,7 @@ class ToyHelmholtz1D(Dataset):
                 x_list.append(data[i*self.sub_size:(i+1)*self.sub_size])
         return x_list
     
-    def get_partition_domain(self, dataset):
+    def get_partition_domain(self, dataset, mode='test'):
         if os.path.exists(os.path.join(self.processed_dir, 'data.pt')):
             return torch.load(os.path.join(self.processed_dir, 'data.pt'))
         # add all the partitioned subdomains to the dataset
@@ -70,34 +71,64 @@ class ToyHelmholtz1D(Dataset):
         return x
 
     def _generate_helmholtz_data(self, freq_bandwidth, num_samples=1000, num_points=400, num_segments=10):
-        if os.path.exists(os.path.join(self.raw_dir, 'data.pt')):
-            return torch.load(os.path.join(self.raw_dir, 'data.pt'))
-        x = np.linspace(0, 10, num_points)  # Spatial domain
-        segment_size = num_points // num_segments  # Number of points per segment
+        data_path = os.path.join(self.raw_dir, 'data.pt')
+        
+        if os.path.exists(data_path):
+            return torch.load(data_path)
+        
+        x_vals = np.linspace(0, 10, num_points)  # Spatial domain
+        segment_size = num_points // num_segments
+        remainder = num_points % num_segments
+        segment_indices = np.cumsum([0] + [segment_size + (1 if i < remainder else 0) for i in range(num_segments)])
+
+        # Define FEniCS mesh and function space
+        mesh = IntervalMesh(num_points - 1, 0, 10)
+        V = FunctionSpace(mesh, "P", 1)  # Linear finite elements
+
         data = []
         for _ in range(num_samples):
-            # Define piecewise constant k(x), ensuring each segment spans at least 1/10 of the domain
+            # Generate piecewise k(x)
             k_x = np.zeros(num_points)
             segment_frequencies = np.random.uniform(freq_bandwidth[0], freq_bandwidth[1], size=num_segments)
 
-            # Assign frequencies to each segment
             for i in range(num_segments):
-                k_x[i * segment_size: (i + 1) * segment_size] = segment_frequencies[i]
+                k_x[segment_indices[i]:segment_indices[i + 1]] = segment_frequencies[i]
 
-            # Ensure continuity by linear interpolation at boundaries
+            # Smooth transitions at segment boundaries
             for i in range(1, num_segments):
-                k_x[i * segment_size] = (k_x[i * segment_size - 1] + k_x[i * segment_size + 1]) / 2
+                idx = segment_indices[i]
+                if idx < num_points - 1:
+                    k_x[idx] = 0.5 * (k_x[idx - 1] + k_x[idx + 1])
 
-            # Compute the forcing function f(x) and solution u(x) for varying k(x)
-            f = np.sin(2 * np.pi * k_x * x)  # Forcing term
-            u = np.sin(2 * np.pi * k_x * x) / (1 + (2 * np.pi * k_x)**2)  # Solution
+            # Convert k(x) to a FEniCS function
+            k_func = Function(V)
+            k_func.vector()[:] = np.interp(mesh.coordinates().flatten(), x_vals, k_x)
 
-            f = torch.tensor(f, dtype=torch.float)
-            u = torch.tensor(u, dtype=torch.float)
+            # Define forcing function f(x)
+            f_expr = Expression("sin(2 * pi * k * x[0])", degree=2, k=k_func)
+            f = interpolate(f_expr, V)
 
-            data.append((f, u))
+            # Define Helmholtz variational problem
+            u = TrialFunction(V)
+            v = TestFunction(V)
+            a = (dot(grad(u), grad(v)) + k_func**2 * u * v) * dx
+            L = f * v * dx
 
-        torch.save(data, os.path.join(self.raw_dir, 'data.pt'))
+            # Solve the system
+            u_sol = Function(V)
+            solve(a == L, u_sol)
+
+            # Normalize u
+            u_array = u_sol.vector().get_local()
+            u_array = (u_array - np.mean(u_array)) / (np.std(u_array) + 1e-6)
+
+            # Convert f and u to torch tensors
+            f_tensor = torch.tensor(f.vector().get_local(), dtype=torch.float)
+            u_tensor = torch.tensor(u_array, dtype=torch.float)
+
+            data.append((f_tensor, u_tensor))
+
+        torch.save(data, data_path)
         return data
     
     def __len__(self):
@@ -105,6 +136,15 @@ class ToyHelmholtz1D(Dataset):
     
     def __getitem__(self, idx):
         return self.data[idx]
+    
+    def get_one_full_sample(self, idx):
+        dataset = torch.load(os.path.join(self.raw_dir, 'data.pt'))
+        data = dataset[idx]
+        x, y = data
+        sub_x_list = self._get_partition_domain(data)
+        sub_x_list = [x for x, _ in sub_x_list]
+        sub_x_list = torch.stack(sub_x_list)
+        return x, sub_x_list, y
 
 class BurgersDataset(Dataset):
     def __init__(self, root, transform=None, pre_transform=None):

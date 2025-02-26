@@ -827,15 +827,14 @@ class SpectralConv1d(nn.Module):
         self.modes = modes
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.weights = nn.Parameter(
-            torch.randn(in_channels, out_channels, modes, dtype=torch.cfloat)
-        )
+        weights = torch.randn(in_channels, out_channels, modes, dtype=torch.cfloat)
+        self.weights = nn.Parameter(weights)
 
     def forward(self, x):
         # Compute Fourier coefficients
         x_ft = torch.fft.rfft(x, dim=-1)
-        print("x_ft shape:", x_ft[..., :self.modes].shape)  # Should be (batch, in_channels, modes)
-        print("weights shape:", self.weights.shape)  # Should be (in_channels, out_channels, modes)
+        # print(x_ft.shape)
+        # print(self.weights.shape)
         # Apply learned weights to the first 'modes' frequencies
         out_ft = torch.zeros_like(x_ft, dtype=torch.cfloat)
         out_ft[..., :self.modes] = torch.einsum("bix,iox->box", x_ft[..., :self.modes], self.weights)
@@ -853,9 +852,9 @@ class NeuralOperator(nn.Module):
         self.fc_out = nn.Linear(width, out_channels)
 
     def forward(self, x):
-        print(x.shape)
+        # print(x.shape)
         # Project input to higher dimensions
-        # x = self.fc_in(x.unsqueeze(-1))
+        x = self.fc_in(x.unsqueeze(-1))
         # print(x.shape)
         x = x.permute(0, 2, 1)  # Change shape to (batch_size, channels, points)
         # Apply spectral convolution

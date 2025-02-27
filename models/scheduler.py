@@ -118,7 +118,7 @@ class PartitionScheduler():
                     # print(x.shape, y.shape)
                     
                     loss = criterion(pred, y)
-                    accuracy = r2_score(y.cpu().detach().numpy(), pred.cpu().detach().numpy())
+                    accuracy = r2_score(y.flatten().cpu().detach().numpy(), pred.flatten().cpu().detach().numpy())
 
                     loss_epoch += loss.item()
                     accuracy_epoch += accuracy

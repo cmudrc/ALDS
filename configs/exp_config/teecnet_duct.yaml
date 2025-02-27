@@ -11,7 +11,7 @@ domain_size: 0.03
 # model configs
 in_channels: 4
 out_channels: 4
-width: 43
+width: 64
 num_powers: 3
 retrieve_weight: False
 # latent_dim: 128

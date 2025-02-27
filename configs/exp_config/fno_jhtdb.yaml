@@ -9,9 +9,9 @@ domain_size: 0.1963495
 # classifier configs
 
 # model configs
-in_channels: 8
-out_channels: 8
-width: 20
+in_channels: 4
+out_channels: 4
+width: 64
 
 # data configs
 root: 'data/jhtdb_isotropic1024'

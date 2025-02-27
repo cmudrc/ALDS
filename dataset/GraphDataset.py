@@ -1,5 +1,5 @@
 import os
-import meshio
+
 # os.environ['HDF5_DISABLE_VERSION_CHECK'] = '2' # Only add this for TRACE to work, comment out for other cases! 
 import time
 import torch

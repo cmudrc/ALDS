@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import scipy.io
 import ctypes
+from dolfin import *
 import h5py
 import shutil
 # import pyJHTDB
@@ -18,31 +19,132 @@ import torch.nn.functional as F
 # from dolfin import *
 
 
-# class MatDataset(InMemoryDataset):
-#     def __init__(self, root, transform=None, pre_transform=None):
-#         super(MatDataset, self).__init__(root, transform, pre_transform)
-#         self.data, self.slices = torch.load(self.processed_paths[0])
+class ToyHelmholtz1D(Dataset):
+    def __init__(self, root, freq_bandwidth=(0.1, 20), num_samples=1000, num_points=400, partition=False, **kwargs):
+        self.root = root
+        self.processed_dir = os.path.join(self.root, 'processed')
+        self.raw_dir = os.path.join(self.root, 'raw')
+        if not os.path.exists(self.processed_dir):
+            os.makedirs(self.processed_dir)
+        if not os.path.exists(self.raw_dir):
+            os.makedirs(self.raw_dir)
+        # os.makedirs(os.makedirs(os.path.join(self.root, 'partition'), exist_ok=True))
+        self.dataset = self._generate_helmholtz_data(freq_bandwidth=freq_bandwidth, num_samples=num_samples, num_points=num_points)
+        self.data = self.dataset
+        if partition:
+            self.sub_size = kwargs['sub_size']
+            self.data = self.get_partition_domain(self.dataset)
 
-#     @property
-#     def raw_file_names(self):
-#         return []
-    
-#     @property
-#     def processed_file_names(self):
-#         return ['data.pt']
-    
-#     def download(self):
-#         pass
+    def _get_partition_domain(self, x):
+        # partition the domain into num_partitions subdomains of the same size
+        x_list = []
+        # if x is a tuple, extract the data
+        if isinstance(x, tuple):
+            data, label = x
+        num_partitions_dim = len(data) // self.sub_size
 
-#     def process(self):
-#         raise NotImplementedError
+        for i in range(num_partitions_dim):
+            if isinstance(x, tuple):
+                x_list.append((data[i*self.sub_size:(i+1)*self.sub_size], label[i*self.sub_size:(i+1)*self.sub_size]))
+            else:
+                x_list.append(data[i*self.sub_size:(i+1)*self.sub_size])
+        return x_list
     
-#     def extract_solution(self, h5_file, sim, res):
-#         raise NotImplementedError
+    def get_partition_domain(self, dataset, mode='test'):
+        if os.path.exists(os.path.join(self.processed_dir, 'data.pt')):
+            return torch.load(os.path.join(self.processed_dir, 'data.pt'))
+        # add all the partitioned subdomains to the dataset
+        data_list = []
+        for data in dataset:
+            data_list.extend(self._get_partition_domain(data))
+
+        torch.save(data_list, os.path.join(self.processed_dir, 'data.pt'))
+        return data_list
     
-#     def construct_data_object(self, coords, connectivity, solution, k):
-#         raise NotImplementedError
+    def reconstruct_from_partitions(self, x, x_list):
+        # reconstruct the domain from the partitioned subdomains
+        num_partitions_dim = x.shape[1] // self.sub_size
+        x = torch.zeros_like(x)
+        for i in range(num_partitions_dim):
+            x[:, i*self.sub_size:(i+1)*self.sub_size] = x_list[i]
+
+        return x
+
+    def _generate_helmholtz_data(self, freq_bandwidth, num_samples=1000, num_points=400, num_segments=10):
+        data_path = os.path.join(self.raw_dir, 'data.pt')
+        
+        if os.path.exists(data_path):
+            return torch.load(data_path)
+        
+        x_vals = np.linspace(0, 10, num_points)  # Spatial domain
+        segment_size = num_points // num_segments
+        remainder = num_points % num_segments
+        segment_indices = np.cumsum([0] + [segment_size + (1 if i < remainder else 0) for i in range(num_segments)])
+
+        # Define FEniCS mesh and function space
+        mesh = IntervalMesh(num_points - 1, 0, 10)
+        V = FunctionSpace(mesh, "P", 1)  # Linear finite elements
+
+        data = []
+        for _ in range(num_samples):
+            # Generate piecewise k(x)
+            k_x = np.zeros(num_points)
+            segment_frequencies = np.random.uniform(freq_bandwidth[0], freq_bandwidth[1], size=num_segments)
+
+            for i in range(num_segments):
+                k_x[segment_indices[i]:segment_indices[i + 1]] = segment_frequencies[i]
+
+            # Smooth transitions at segment boundaries
+            for i in range(1, num_segments):
+                idx = segment_indices[i]
+                if idx < num_points - 1:
+                    k_x[idx] = 0.5 * (k_x[idx - 1] + k_x[idx + 1])
+
+            # Convert k(x) to a FEniCS function
+            k_func = Function(V)
+            k_func.vector()[:] = np.interp(mesh.coordinates().flatten(), x_vals, k_x)
+
+            # Define forcing function f(x)
+            f_expr = Expression("sin(2 * pi * k * x[0])", degree=2, k=k_func)
+            f = interpolate(f_expr, V)
+
+            # Define Helmholtz variational problem
+            u = TrialFunction(V)
+            v = TestFunction(V)
+            a = (dot(grad(u), grad(v)) + k_func**2 * u * v) * dx
+            L = f * v * dx
+
+            # Solve the system
+            u_sol = Function(V)
+            solve(a == L, u_sol)
+
+            # Normalize u
+            u_array = u_sol.vector().get_local()
+            u_array = (u_array - np.mean(u_array)) / (np.std(u_array) + 1e-6)
+
+            # Convert f and u to torch tensors
+            f_tensor = torch.tensor(f.vector().get_local(), dtype=torch.float)
+            u_tensor = torch.tensor(u_array, dtype=torch.float)
+
+            data.append((f_tensor, u_tensor))
+
+        torch.save(data, data_path)
+        return data
     
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        return self.data[idx]
+    
+    def get_one_full_sample(self, idx):
+        dataset = torch.load(os.path.join(self.raw_dir, 'data.pt'))
+        data = dataset[idx]
+        x, y = data
+        sub_x_list = self._get_partition_domain(data)
+        sub_x_list = [x for x, _ in sub_x_list]
+        sub_x_list = torch.stack(sub_x_list)
+        return x, sub_x_list, y
 
 class BurgersDataset(Dataset):
     def __init__(self, root, transform=None, pre_transform=None):
@@ -453,8 +555,8 @@ class Sub_JHTDB(Dataset):
     def __init__(self, root, indices):
         self.root = root
         # verify that JHTDB data is correctly processed
-        if not os.path.exists(os.path.join(self.root, 'processed', 'data.pt')):
-            raise ValueError('JHTDB data is not processed yet')
+        # if not os.path.exists(os.path.join(self.root, 'processed', 'data.pt')):
+        #     raise ValueError('JHTDB data is not processed yet')
         self.indices = indices
 
         self.data = torch.load(os.path.join(self.root, 'processed', 'data.pt'))

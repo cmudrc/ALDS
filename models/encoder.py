@@ -6,7 +6,7 @@ import torch.nn as nn
 import numpy as np
 from joblib import dump, load
 # from multiprocessing import Pool
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, wait, ALL_COMPLETED
 from time import time
 
 
@@ -102,10 +102,10 @@ class PCAEncoder(Encoder):
         # print(type(dataset[0]))
         # split training data by graph and matrix format and call the appropriate training function
         # if dataset is a torch dataset, send to _train_matrix, if dataset is a torch_geometric InMemoryDataset, send to _train_graph
-        if type(dataset[0][0]) == list:
-            self._train_matrix(dataset, save_model, path)
-        else:
-            self._train_graph(dataset, save_model, path)
+        # if type(dataset[0][0]) == list:
+        self._train_matrix(dataset, save_model, path)
+        # else:
+        #     self._train_graph(dataset, save_model, path)
 
     def _train_graph(self, dataset, save_model=False, path=None):
         data_space = []
@@ -315,45 +315,48 @@ class SpectrumEncoder(Encoder):
         tke_spectrum = np.log(tke_spectrum[1:] + 1e-8)
         tke_spectrum = (tke_spectrum - np.min(tke_spectrum)) / (np.max(tke_spectrum) - np.min(tke_spectrum))
 
+        return tke_spectrum
+    
     def get_latent_space(self, dataset):
         # determine if the dataset is a torch matrix dataset or a torch_geometric dataset
-        if type(dataset[0][0]) == list:
-            try:
-                dataset = [[data[0][0][:, :, 0], self.domain_size, self.domain_size] for data in dataset]
-            except:
-                dataset = [[data[0], self.domain_size, self.domain_size] for data in dataset]
-            with ThreadPoolExecutor() as executor:
-                latent_space = executor.map(self._compute_tke_spectrum, dataset)
-        else:
-            latent_space = []
-            for data in dataset:
-                points = data.pos.cpu().detach().numpy()
-                physics = data.y.cpu().detach().numpy()
-                latent_space.append(self._compute_tke_spectrum_3d(points, physics, (self.domain_size, self.domain_size, self.domain_size)))
+        # if type(dataset[0][0]) == list:
+        try:
+            dataset = [[data[0][0][:, :, 0].numpy(), self.domain_size, self.domain_size] for data in dataset]
+        except:
+            dataset = [[data[0].numpy(), self.domain_size.numpy(), self.domain_size] for data in dataset]
+        with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+            latent_space = list(executor.map(self._compute_tke_spectrum, dataset))
+
+        # else:
+        #     latent_space = []
+        #     for data in dataset:
+        #         points = data.pos.cpu().detach().numpy()
+        #         physics = data.y.cpu().detach().numpy()
+        #         latent_space.append(self._compute_tke_spectrum_3d(points, physics, (self.domain_size, self.domain_size, self.domain_size)))
 
         return np.array(latent_space)
 
     def get_latent(self, x):
         # determine if the data object is a torch matrix or a torch_geometric object
-        if type(x) == tuple:
+        # if type(x) == tuple:
 
-            # print('Computing latent space')
-            # time_start = time()
-            x = [(data, self.domain_size, self.domain_size) for data in x]
-            # domain_size_list = [self.domain_size for _ in range(len(x))]
-            # time_sep = time()
-            # print(f'Time to separate data: {time_sep - time_start}')
-            with ThreadPoolExecutor() as executor:
-                latent_space = executor.map(self._compute_tke_spectrum, x)
-                # latent_space = p.starmap(self._compute_tke_spectrum, zip(x, domain_size_list, domain_size_list))
-            # time_end = time()
-            # print(f'Time to compute latent space: {time_end - time_sep}')
-        else:
-            latent_space = []
-            for data in x:
-                points = data.pos.cpu().detach().numpy()
-                physics = data.y.cpu().detach().numpy()
-                latent_space.append(self._compute_tke_spectrum_3d(points, physics, (self.domain_size, self.domain_size, self.domain_size)))
+        # print('Computing latent space')
+        # time_start = time()
+        x = [(data, self.domain_size, self.domain_size) for data in x]
+        # domain_size_list = [self.domain_size for _ in range(len(x))]
+        # time_sep = time()
+        # print(f'Time to separate data: {time_sep - time_start}')
+        with ProcessPoolExecutor(max_workers=16) as executor:
+            latent_space = list(executor.map(self._compute_tke_spectrum, x))
+            # latent_space = p.starmap(self._compute_tke_spectrum, zip(x, domain_size_list, domain_size_list))
+        # time_end = time()
+        # print(f'Time to compute latent space: {time_end - time_sep}')
+        # else:
+        #     latent_space = []
+        #     for data in x:
+        #         points = data.pos.cpu().detach().numpy()
+        #         physics = data.y.cpu().detach().numpy()
+        #         latent_space.append(self._compute_tke_spectrum_3d(points, physics, (self.domain_size, self.domain_size, self.domain_size)))
         return np.array(latent_space)
 
     def load_model(self, path):

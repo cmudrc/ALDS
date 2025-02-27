@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import DataLoader, random_split
 import torch.nn as nn
 from torch.nn.init import uniform_ as reset
+from torch.nn.parallel import DistributedDataParallel as DDP
 # import torch_geometric.nn as pyg_nn
 # from torch_geometric.nn.inits import reset, uniform
 import torch.nn.functional as F
@@ -12,7 +13,7 @@ from sklearn.metrics import r2_score
 from joblib import dump, load
 import wandb
 from dataset.MatDataset import Sub_JHTDB
-from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, wait, ALL_COMPLETED
 from models.model import *
 
 
@@ -91,7 +92,7 @@ class PartitionScheduler():
             val_loader = DataLoader(val_dataset, batch_size=train_config['batch_size'], shuffle=False)
             model = self._initialize_model(self.model, 8, 8, width=64)
             if is_parallel:
-                model = nn.DataParallel(model)
+                model = DDP(model, device_ids=[i for i in range(torch.cuda.device_count())])
                 model = model.to(device)
             else:
                 model = model.to(device)
@@ -153,7 +154,7 @@ class PartitionScheduler():
                         # plot one sample from the validation set
                         x, y = val_dataset[0]
                         try:
-                            x, y = x.to(device), y.to(device)
+                            x, y = x.unsqueeze(0).to(device), y.unsqueeze(0).to(device)
                             pred = model(x)
                         except:
                             x, boundary, y = x[0].unsqueeze(0).to(device), x[1].unsqueeze(0).to(device), y[:, :, 0].unsqueeze(0).unsqueeze(-1).to(device)
@@ -173,22 +174,33 @@ class PartitionScheduler():
         self.models = models
 
     def _plot_prediction(self, y, y_pred):
-        window_size = y.shape[1]
-        xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
-        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-        axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size, window_size), levels=100, cmap='plasma')
-        axs[0].set_title('(a) Ground truth')
-        axs[0].axis('off')
-        axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
-        axs[1].set_title('(b) Prediction')
-        axs[1].axis('off')
-        axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
-        axs[2].set_title('(c) Absolute difference by percentage')
-        axs[2].axis('off')
-        # add colorbar and labels to the rightmost plot
-        cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
-        cbar.set_label('Absolute difference')
-        plt.tight_layout()
+        # if data is 2d, plot the contour
+        if len(y.shape) == 3:
+            window_size = y.shape[1]
+            xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
+            fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+            axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size, window_size), levels=100, cmap='plasma')
+            axs[0].set_title('(a) Ground truth')
+            axs[0].axis('off')
+            axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
+            axs[1].set_title('(b) Prediction')
+            axs[1].axis('off')
+            axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
+            axs[2].set_title('(c) Absolute difference by percentage')
+            axs[2].axis('off')
+            # add colorbar and labels to the rightmost plot
+            cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
+            cbar.set_label('Absolute difference')
+            plt.tight_layout()
+        
+        # if data is 1d, plot the line plot
+        if len(y.shape) == 2:
+            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+            ax.plot(y.squeeze(0).cpu().detach().numpy(), label="Ground Truth", color='blue')
+            ax.plot(y_pred.squeeze(0).cpu().detach().numpy(), label="Prediction", color='red')
+            ax.legend()
+            # ax.axis('off')
+            plt.tight_layout()  
 
         wandb.log({'prediction': wandb.Image(plt)})
 
@@ -196,7 +208,7 @@ class PartitionScheduler():
         # for parallel training on multiple gpus
         if torch.cuda.device_count() > 1:
             print(f'Using {torch.cuda.device_count()} GPUs')
-            self._train_sub_models(train_config, torch.device('cuda'), subset_idx, is_parallel=True)
+            self._train_sub_models(train_config, torch.device('cuda'), subset_idx, is_parallel=False) # bug with parallel training, need to fix
         else:
             print('Using single GPU')
             self._train_sub_models(train_config, torch.device('cuda'), subset_idx, is_parallel=False)
@@ -248,55 +260,55 @@ class PartitionScheduler():
                 model_idx.append(i)
         # print(len(x_subsets), len(subsets_idx_mask))
         print(f'Predicting on {len(x_subsets)} subsets')
-        if torch.cuda.device_count() > 1:
-            print(f'Using {torch.cuda.device_count()} GPUs')
-            device_list = [torch.device(f'cuda:{i}') for i in range(torch.cuda.device_count())]          
-            # assign model and corresponding data to different gpus and predict in parallel
-            for num_execs in range(num_subsets // torch.cuda.device_count() + 1):
-                exec_list = []
-                with ThreadPoolExecutor(max_workers=torch.cuda.device_count()) as executor:
-                    for i, device in enumerate(device_list):
-                        idx = num_execs * torch.cuda.device_count() + i
-                        if idx >= num_subsets:
-                            break 
-                        cur_subset = x_subsets[idx].detach().clone().to(device)
-                        # print(cur_subset.device)
-                        cur_model = self.models[model_idx[idx]].to(device)
-                        # print(cur_model.mlp0.mlp1.weight.device)
-                        pred = executor.submit(self._predict_sub_model, cur_model, cur_subset, idx)
-                        exec_list.append(pred)
+        # if torch.cuda.device_count() > 1:
+        #     print(f'Using {torch.cuda.device_count()} GPUs')
+        #     device_list = [torch.device(f'cuda:{i}') for i in range(torch.cuda.device_count())]          
+        #     # assign model and corresponding data to different gpus and predict in parallel
+        #     for num_execs in range(num_subsets // torch.cuda.device_count() + 1):
+        #         exec_list = []
+        #         with ProcessPoolExecutor(max_workers=torch.cuda.device_count()) as executor:
+        #             for i, device in enumerate(device_list):
+        #                 idx = num_execs * torch.cuda.device_count() + i
+        #                 if idx >= num_subsets:
+        #                     break 
+        #                 cur_subset = x_subsets[idx].detach().clone().to(device)
+        #                 # print(cur_subset.device)
+        #                 cur_model = self.models[model_idx[idx]].to(device)
+        #                 # print(cur_model.mlp0.mlp1.weight.device)
+        #                 pred = executor.submit(self._predict_sub_model, cur_model, cur_subset, idx)
+        #                 exec_list.append(pred)
                     
-                    print(f'Waiting for {len(exec_list)} threads to finish')
-                    # batch_idx = num_execs * torch.cuda.device_count()
-                    complete_pred, incomplete_pred = wait(exec_list, return_when=ALL_COMPLETED)
-                    for pred in complete_pred:
-                        # idx = subsets_idx_mask[batch_idx]
-                        cur_pred = pred.result().detach().clone()
-                        cur_idx = int(cur_pred[:, 1].max().item())
-                        # print(cur_idx)
-                        cur_pred = cur_pred[:, 0]
-                        idx = subsets_idx_mask[cur_idx]
-                        predictions[idx] = cur_pred
+        #             print(f'Waiting for {len(exec_list)} threads to finish')
+        #             # batch_idx = num_execs * torch.cuda.device_count()
+        #             complete_pred, incomplete_pred = wait(exec_list, return_when=ALL_COMPLETED)
+        #             for pred in complete_pred:
+        #                 # idx = subsets_idx_mask[batch_idx]
+        #                 cur_pred = pred.result().detach().clone()
+        #                 cur_idx = int(cur_pred[:, 1].max().item())
+        #                 # print(cur_idx)
+        #                 cur_pred = cur_pred[:, 0]
+        #                 idx = subsets_idx_mask[cur_idx]
+        #                 predictions[idx] = cur_pred
                         # predictions[subsets_idx_mask[idx+1]] = cur_pred
                         # batch_idx += 1
 
                     # wait for threads to finish before submitting the next batch
                     # executor.shutdown(wait=True)
 
-        else:
-            print('Using single GPU')
-            device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-            for i in range(num_subsets):
-                cur_subset = x_subsets[i].detach().clone().to(device)
-                cur_model = self.models[model_idx[i]].to(device)
-                if x_boundary is not None:
-                    cur_boundary = x_boundary_subsets[i].detach().clone().to(device)
-                    pred = self._predict_sub_model(cur_model, cur_subset, cur_boundary)
-                else:
-                   pred = self._predict_sub_model(cur_model, cur_subset)
-                cur_pred = pred.detach().cpu()
-                idx = subsets_idx_mask[i]
-                predictions[idx] = cur_pred
+        # else:
+        print('Using single GPU')
+        device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        for i in range(num_subsets):
+            cur_subset = x_subsets[i].detach().clone().to(device)
+            cur_model = self.models[model_idx[i]].to(device)
+            if x_boundary is not None:
+                cur_boundary = x_boundary_subsets[i].detach().clone().to(device)
+                pred = self._predict_sub_model(cur_model, cur_subset, cur_boundary)
+            else:
+                pred = self._predict_sub_model(cur_model, cur_subset)
+            cur_pred = pred.detach().cpu()
+            idx = subsets_idx_mask[i]
+            predictions[idx] = cur_pred
 
         return predictions, labels
     

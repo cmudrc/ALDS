@@ -23,7 +23,7 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
             r2_scores = []
             try:
                 x, sub_x_list, _ = dataset.get_one_full_sample(idx)
-                all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_tensor, num_iters=kwargs['timesteps'])
+                all_pred_y_list, all_labels = scheduler.recurrent_predict(x, sub_x_list, num_iters=kwargs['timesteps'])
             except:
                 print('starting data loading')
                 x, sub_x_list, sub_boundary_list, _ = dataset.get_one_full_sample(idx)

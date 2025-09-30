@@ -179,13 +179,13 @@ class PartitionScheduler():
             window_size = y.shape[1]
             xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
             fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-            axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size, window_size), levels=100, cmap='plasma')
+            axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size, window_size), levels=np.linspace(0, 1, 100), cmap='plasma')
             axs[0].set_title('(a) Ground truth')
             axs[0].axis('off')
-            axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
+            axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size, window_size), levels=np.linspace(0, 1, 100), cmap='plasma')
             axs[1].set_title('(b) Prediction')
             axs[1].axis('off')
-            axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
+            axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=np.linspace(0, 1, 100), cmap='plasma')
             axs[2].set_title('(c) Absolute difference by percentage')
             axs[2].axis('off')
             # add colorbar and labels to the rightmost plot

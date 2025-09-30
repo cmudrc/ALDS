@@ -43,7 +43,7 @@ def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
     axs[2].axis('off')
     # add colorbar and labels to the rightmost plot
     cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
-    cbar.set_label('Velocity magnitude (normalized)')
+    cbar.set_label('Absolute difference')
     plt.tight_layout()
 
     # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))

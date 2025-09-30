@@ -41,16 +41,24 @@ class ToyHelmholtz1D(Dataset):
         # if x is a tuple, extract the data
         if isinstance(x, tuple):
             data, label = x
-        num_partitions_dim = len(data) // self.sub_size
-
+        else:
+            data = x
+        num_partitions_dim = len(data) - (self.sub_size + 10) + 1
         for i in range(num_partitions_dim):
             if isinstance(x, tuple):
-                x_list.append((data[i*self.sub_size:(i+1)*self.sub_size], label[i*self.sub_size:(i+1)*self.sub_size]))
+                data_ = data[i:i+self.sub_size+10]
+                label_ = label[i:i+self.sub_size+10]
+                # normalize the label
+                label_ = (label_ - label_.mean()) / label_.std()
+                x_list.append((data_, label_))
             else:
-                x_list.append(data[i*self.sub_size:(i+1)*self.sub_size])
+                x_list.append(data[i:i+self.sub_size])
+        # print(num_partitions_dim)
         return x_list
     
-    def get_partition_domain(self, dataset, mode='test'):
+    def get_partition_domain(self, dataset, mode='train'):
+        if mode == 'test':
+            return self._get_partition_domain(dataset)
         if os.path.exists(os.path.join(self.processed_dir, 'data.pt')):
             return torch.load(os.path.join(self.processed_dir, 'data.pt'))
         # add all the partitioned subdomains to the dataset
@@ -63,10 +71,11 @@ class ToyHelmholtz1D(Dataset):
     
     def reconstruct_from_partitions(self, x, x_list):
         # reconstruct the domain from the partitioned subdomains
-        num_partitions_dim = x.shape[1] // self.sub_size
+        num_partitions_dim = x.shape[1] - self.sub_size - 10 + 1
         x = torch.zeros_like(x)
+        # deal with non-batched data
         for i in range(num_partitions_dim):
-            x[:, i*self.sub_size:(i+1)*self.sub_size] = x_list[i]
+            x[:, i+5:i+5+self.sub_size] = x_list[i][5:5+self.sub_size]
 
         return x
 
@@ -89,7 +98,7 @@ class ToyHelmholtz1D(Dataset):
         for _ in range(num_samples):
             # Generate piecewise k(x)
             k_x = np.zeros(num_points)
-            segment_frequencies = np.random.uniform(freq_bandwidth[0], freq_bandwidth[1], size=num_segments)
+            segment_frequencies = np.random.choice(np.linspace(freq_bandwidth[0], freq_bandwidth[1], 20), num_segments)
 
             for i in range(num_segments):
                 k_x[segment_indices[i]:segment_indices[i + 1]] = segment_frequencies[i]
@@ -126,6 +135,9 @@ class ToyHelmholtz1D(Dataset):
             f_tensor = torch.tensor(f.vector().get_local(), dtype=torch.float)
             u_tensor = torch.tensor(u_array, dtype=torch.float)
 
+            # normalize the label
+            # u_tensor = (u_tensor - u_tensor.min()) / (u_tensor.max() - u_tensor.min())
+
             data.append((f_tensor, u_tensor))
 
         torch.save(data, data_path)
@@ -141,10 +153,13 @@ class ToyHelmholtz1D(Dataset):
         dataset = torch.load(os.path.join(self.raw_dir, 'data.pt'))
         data = dataset[idx]
         x, y = data
-        sub_x_list = self._get_partition_domain(data)
-        sub_x_list = [x for x, _ in sub_x_list]
+        data_list = self._get_partition_domain(data)
+        sub_x_list = [x for x, _ in data_list]
+        sub_y_list = [y for _, y in data_list]
         sub_x_list = torch.stack(sub_x_list)
-        return x, sub_x_list, y
+        sub_y_list = torch.stack(sub_y_list)
+        return x, sub_x_list, sub_y_list
+        # return x, sub_x_list, y
 
 class BurgersDataset(Dataset):
     def __init__(self, root, transform=None, pre_transform=None):
@@ -412,10 +427,10 @@ class JHTDB_ICML(Dataset):
         self.fields = fields
         self.dataset = dataset
         self.flag_partition = partition
-        # self.jhtdb = pyJHTDB.libJHTDB()
-        # self.jhtdb.initialize()
-        # self.jhtdb.lib.turblibSetExitOnError(ctypes.c_int(0))
-        # self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
+        self.jhtdb = pyJHTDB.libJHTDB()
+        self.jhtdb.initialize()
+        self.jhtdb.lib.turblibSetExitOnError(ctypes.c_int(0))
+        self.jhtdb.add_token('edu.cmu.zedaxu-f374fe6b')
         
         if partition:
             self.sub_size = kwargs['sub_size']

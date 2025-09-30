@@ -29,22 +29,35 @@ def get_cur_time():
 
 
 def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
-    window_size_x, window_size_y = y_pred.shape[2], y_pred.shape[1]
-    xx, yy = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y))
-    fig, axs = plt.subplots(3, 1, figsize=(5*window_size_x/window_size_y, 3*5))
-    axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
-    axs[0].set_title('(a) Ground truth')
-    axs[0].axis('off')
-    axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
-    axs[1].set_title('(b) Prediction')
-    axs[1].axis('off')
-    axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size_y, window_size_x) - y_pred.cpu().reshape(window_size_y, window_size_x)) / y.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
-    axs[2].set_title('(c) Absolute difference by percentage')
-    axs[2].axis('off')
-    # add colorbar and labels to the rightmost plot
-    cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
-    cbar.set_label('Velocity magnitude (normalized)')
-    plt.tight_layout()
+    if len(y.shape) == 3:
+        window_size = y.shape[1]
+        xx, yy = np.meshgrid(np.linspace(0, 1, window_size), np.linspace(0, 1, window_size))
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+        axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size, window_size), levels=100, cmap='plasma')
+        axs[0].set_title('(a) Ground truth')
+        axs[0].axis('off')
+        axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
+        axs[1].set_title('(b) Prediction')
+        axs[1].axis('off')
+        axs[2].contourf(xx, yy, np.abs(y.cpu().reshape(window_size, window_size) - y_pred.cpu().reshape(window_size, window_size)) / y.cpu().reshape(window_size, window_size), levels=100, cmap='plasma')
+        axs[2].set_title('(c) Absolute difference by percentage')
+        axs[2].axis('off')
+        # add colorbar and labels to the rightmost plot
+        cbar = plt.colorbar(axs[0].collections[0], ax=axs[0], orientation='vertical')
+        cbar.set_label('Velocity magnitude (normalized)')
+        # set label size to 60
+        cbar.ax.tick_params(labelsize=60)
+        cbar.set_label('Absolute difference')
+        plt.tight_layout()
+        
+    # if data is 1d, plot the line plot
+    if len(y.shape) == 2:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        ax.plot(y.squeeze(0).cpu().detach().numpy(), label="Ground Truth", color='blue')
+        ax.plot(y_pred.squeeze(0).cpu().detach().numpy(), label="Prediction", color='red')
+        ax.legend()
+        # ax.axis('off')
+        plt.tight_layout()  
 
     # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
     if save_mode == 'wandb':
@@ -61,54 +74,74 @@ def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
 
 
 def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
-    # cover a colored mask on the prediction indicating the partition
-    window_size_x, window_size_y = y_pred.shape[2], y_pred.shape[1]
-    xx, yy = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y))
-    fig, axs = plt.subplots(3, 1, figsize=(5*window_size_x/window_size_y, 3*5))
+    if len(y.shape) == 3:
+        # cover a colored mask on the prediction indicating the partition
+        window_size_x, window_size_y = y_pred.shape[2], y_pred.shape[1]
+        xx, yy = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y))
+        fig, axs = plt.subplots(3, 1, figsize=(5*window_size_x/window_size_y, 3*5))
 
-    colormap = plt.cm.tab20
+        colormap = plt.cm.tab20
 
-    mask = np.zeros((window_size_y, window_size_x))
-    # for i in range(window_size_x - sub_size + 1):
-    #     for j in range(window_size_y - sub_size + 1):
-    #         mask[j:j + sub_size, i:i + sub_size] = labels[i * (window_size_y - sub_size + 1) + j]
-    for i in range(window_size_y // sub_size):
-        for j in range(window_size_x // sub_size):
-            mask[j * sub_size:(j + 1) * sub_size, i * sub_size:(i + 1) * sub_size] = labels[i * (window_size_y // sub_size) + j]
+        mask = np.zeros((window_size_y, window_size_x))
+        # for i in range(window_size_x - sub_size + 1):
+        #     for j in range(window_size_y - sub_size + 1):
+        #         mask[j:j + sub_size, i:i + sub_size] = labels[i * (window_size_y - sub_size + 1) + j]
+        for i in range(window_size_y // sub_size):
+            for j in range(window_size_x // sub_size):
+                mask[j * sub_size:(j + 1) * sub_size, i * sub_size:(i + 1) * sub_size] = labels[i * (window_size_y // sub_size) + j]
 
-    # revert y axis of mask
-    mask = np.flip(mask, axis=0)
+        # revert y axis of mask
+        mask = np.flip(mask, axis=0)
 
-    # axs[0].contourf(xx, yy, y_pred.cpu().detach().reshape(window_size_y, window_size_x), levels=100, cmap='plasma')
-    axs[0].contourf(xx, yy, y_pred.cpu().squeeze(0).squeeze(-1), levels=np.linspace(0, 1, 100), cmap='plasma')
-    axs[0].set_title('(a) Prediction')
-    axs[0].axis('off')
-    # axs[0].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
-    # for i in range(int(window_size / sub_size)):
-    #     for j in range(int(window_size / sub_size)):
-    #         rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none', alpha=0.2)
-    #         axs[0].add_patch(rect)
+        # axs[0].contourf(xx, yy, y_pred.cpu().detach().reshape(window_size_y, window_size_x), levels=100, cmap='plasma')
+        axs[0].contourf(xx, yy, y_pred.cpu().squeeze(0).squeeze(-1), levels=np.linspace(0, 1, 100), cmap='plasma')
+        axs[0].set_title('(a) Prediction')
+        axs[0].axis('off')
+        # axs[0].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
+        # for i in range(int(window_size / sub_size)):
+        #     for j in range(int(window_size / sub_size)):
+        #         rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none', alpha=0.2)
+        #         axs[0].add_patch(rect)
 
-    # axs[1].contourf(xx, yy, np.abs(y.cpu().reshape(window_size_y, window_size_x) - y_pred.cpu().reshape(window_size_y, window_size_x)) / y.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
-    axs[1].contourf(xx, yy, np.abs(y.squeeze(0).squeeze(-1).cpu() - y_pred.cpu().squeeze(0).squeeze(-1)) / y.cpu().squeeze(0).squeeze(-1), levels=np.linspace(0, 1, 100), cmap='plasma')
-    axs[1].set_title('(b) Absolute difference by percentage')
-    axs[1].axis('off')
-    # axs[1].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
-    # for i in range(int(window_size / sub_size)):
-    #     for j in range(int(window_size / sub_size)):
-    #         rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none')
-    #         axs[1].add_patch(rect)
+        # axs[1].contourf(xx, yy, np.abs(y.cpu().reshape(window_size_y, window_size_x) - y_pred.cpu().reshape(window_size_y, window_size_x)) / y.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
+        axs[1].contourf(xx, yy, np.abs(y.squeeze(0).squeeze(-1).cpu() - y_pred.cpu().squeeze(0).squeeze(-1)) / y.cpu().squeeze(0).squeeze(-1), levels=np.linspace(0, 1, 100), cmap='plasma')
+        axs[1].set_title('(b) Absolute difference by percentage')
+        axs[1].axis('off')
+        # axs[1].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
+        # for i in range(int(window_size / sub_size)):
+        #     for j in range(int(window_size / sub_size)):
+        #         rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none')
+        #         axs[1].add_patch(rect)
 
-    axs[2].imshow(mask, cmap='tab20', interpolation='none')
-    # add legend to show which color corresponds to which partition
-    patches = [mpatches.Patch(color=colormap(i), label=f'Partition {i}') for i in range(len(np.unique(labels)))]
-    axs[2].legend(handles=patches, loc='upper right')
-    
+        axs[2].imshow(mask, cmap='tab20', interpolation='none')
+        # add legend to show which color corresponds to which partition
+        patches = [mpatches.Patch(color=colormap(i), label=f'Partition {i}') for i in range(len(np.unique(labels)))]
+        axs[2].legend(handles=patches, loc='upper right')
+
+    if len(y.shape) == 2:
+        x = np.linspace(0, 10, y.shape[1])
+        # split the prediction into sub windows
+        prediction_split = []
+        for i in range(y_pred.shape[1] // sub_size):
+            prediction_split.append(y_pred[:, i * sub_size:(i + 1) * sub_size])
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+        colormap = plt.cm.tab20
+        axs[0].plot(x, y.squeeze(0).cpu().detach().numpy(), label="Ground Truth", color='blue')
+        for i in range(len(prediction_split)):
+            axs[1].plot(x[i * sub_size:(i + 1) * sub_size], prediction_split[i].squeeze(0).cpu().detach().numpy(), label=f"Partition {labels[i]}", color=colormap(labels[i]))
+        axs[1].set_title('Prediction')
+        # set y axis to be the same as the ground truth
+        axs[1].set_ylim(axs[0].get_ylim())
+        axs[1].legend()
+        axs[2].plot(x, np.abs(y.squeeze(0).cpu().detach().numpy() - y_pred.squeeze(0).cpu().detach().numpy()) / y.squeeze(0).cpu().detach().numpy(), color='red')
+        axs[2].set_title('Absolute difference by percentage')
+        # axs[2].legend()
+        # axs[2].axis('off')
+  
     # add colorbar and labels to the rightmost plot
     # cbar = plt.colorbar(axs[1].collections[0], ax=axs[1], orientation='vertical')
     # cbar.set_label('Absolute difference')
     # # plt.tight_layout()
-    
 
     if save_mode == 'wandb':
         wandb.log({'prediction': wandb.Image(plt)})

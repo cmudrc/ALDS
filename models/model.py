@@ -821,45 +821,163 @@ class KernelNN(torch.nn.Module):
         return x
     
 
+
 class SpectralConv1d(nn.Module):
-    def __init__(self, modes, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, modes, scale=None):
+        """
+        1D Spectral convolution layer for Fourier Neural Operator
+        
+        Args:
+            in_channels: Number of input channels
+            out_channels: Number of output channels 
+            modes: Number of Fourier modes to multiply
+            scale: Scaling factor for the weights initialization (default: None)
+        """
         super(SpectralConv1d, self).__init__()
-        self.modes = modes
         self.in_channels = in_channels
         self.out_channels = out_channels
-        weights = torch.randn(in_channels, out_channels, modes, dtype=torch.cfloat)
+        self.modes = modes
+        
+        # Initialize Fourier weights
+        scale = (1 / (in_channels * out_channels)) if scale is None else scale
+        weights = torch.randn(in_channels, out_channels, modes, dtype=torch.cfloat) * scale**0.5
         self.weights = nn.Parameter(weights)
-
+    
     def forward(self, x):
+        """
+        Forward pass through the spectral convolution layer
+        
+        Args:
+            x: Input tensor of shape [batch_size, in_channels, sequence_length]
+            
+        Returns:
+            Output tensor of shape [batch_size, out_channels, sequence_length]
+        """
+        batch_size = x.shape[0]
+        sequence_length = x.shape[-1]
+        
         # Compute Fourier coefficients
         x_ft = torch.fft.rfft(x, dim=-1)
-        # print(x_ft.shape)
-        # print(self.weights.shape)
-        # Apply learned weights to the first 'modes' frequencies
-        out_ft = torch.zeros_like(x_ft, dtype=torch.cfloat)
-        out_ft[..., :self.modes] = torch.einsum("bix,iox->box", x_ft[..., :self.modes], self.weights)
+        
+        # Initialize output Fourier coefficients
+        out_ft = torch.zeros(batch_size, self.out_channels, x_ft.shape[-1], 
+                            device=x.device, dtype=torch.cfloat)
+        
+        # Apply spectral convolution to the first 'modes' coefficients
+        # This is equivalent to multiplication in the Fourier space
+        out_ft[:, :, :self.modes] = torch.einsum("bim,iom->bom", 
+                                               x_ft[:, :, :self.modes], 
+                                               self.weights)
+        
         # Transform back to physical space
-        x = torch.fft.irfft(out_ft, n=x.size(-1), dim=-1)
+        x = torch.fft.irfft(out_ft, n=sequence_length, dim=-1)
+        
         return x
 
 
-# Neural operator model
 class NeuralOperator(nn.Module):
-    def __init__(self, in_channels, out_channels, modes, width, **kwargs):
+    def __init__(self, 
+                 in_channels=1, 
+                 out_channels=1, 
+                 width=64, 
+                 modes=16, 
+                 depth=4,
+                 activation='gelu',
+                 use_residual=True, **kwargs):
+        """
+        1D Fourier Neural Operator
+        
+        Args:
+            in_channels: Number of input features per point
+            out_channels: Number of output features per point
+            width: Hidden channel dimension
+            modes: Number of Fourier modes to multiply
+            depth: Number of FNO layers
+            activation: Activation function
+            use_residual: Whether to use residual connections
+        """
         super(NeuralOperator, self).__init__()
-        self.spectral_conv = SpectralConv1d(modes, width, width)
+        
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.width = width
+        self.modes = modes
+        self.depth = depth
+        self.use_residual = use_residual
+        
+        # Choose activation function
+        if activation == 'relu':
+            self.activation = F.relu
+        elif activation == 'gelu':
+            self.activation = F.gelu
+        elif activation == 'tanh':
+            self.activation = torch.tanh
+        else:
+            raise ValueError(f"Activation {activation} not supported")
+        
+        # Lifting layer
         self.fc_in = nn.Linear(in_channels, width)
+        
+        # FNO layers
+        self.fno_layers = nn.ModuleList([])
+        self.conv_layers = nn.ModuleList([])
+        self.mlp_layers = nn.ModuleList([])
+        
+        for _ in range(depth):
+            self.fno_layers.append(SpectralConv1d(width, width, modes))
+            # Point-wise convolution for residual path
+            self.conv_layers.append(nn.Conv1d(width, width, 1))
+            # MLP for residual path
+            self.mlp_layers.append(nn.Sequential(
+                nn.Linear(width, width),
+                nn.ReLU(),
+                nn.Linear(width, width)
+            ))
+        
+        # Projection layer
         self.fc_out = nn.Linear(width, out_channels)
-
+    
     def forward(self, x):
-        # print(x.shape)
-        # Project input to higher dimensions
-        x = self.fc_in(x.unsqueeze(-1))
-        # print(x.shape)
-        x = x.permute(0, 2, 1)  # Change shape to (batch_size, channels, points)
-        # Apply spectral convolution
-        x = self.spectral_conv(x)
-        x = x.permute(0, 2, 1)  # Back to (batch_size, points, channels)
-        # Project back to original dimensions
-        x = self.fc_out(x).squeeze(-1)
+        """
+        Forward pass
+        
+        Args:
+            x: Input tensor of shape [batch_size, sequence_length, in_channels]
+                or [batch_size, sequence_length] for scalar inputs
+
+        Returns:
+            Output tensor of shape [batch_size, sequence_length, out_channels]
+                or [batch_size, sequence_length] for scalar outputs
+        """
+        # Handle scalar inputs (add channel dimension if needed)
+        if len(x.shape) == 2:
+            x = x.unsqueeze(-1)
+        
+        # Lift to higher dimension
+        x = self.fc_in(x)
+        
+        # Change to channel-first format for spectral convolutions
+        x = x.permute(0, 2, 1)
+        
+        # Apply FNO layers with residual connections
+        for i in range(self.depth):
+            x1 = self.fno_layers[i](x)
+            # if self.use_residual:
+            #     x1 = self.mlp_layers[i](x1)
+            x2 = self.conv_layers[i](x)
+            if self.use_residual:
+                x = self.activation(x1 + x2)
+            else:
+                x = self.activation(x1)
+        
+        # Change back to channel-last format
+        x = x.permute(0, 2, 1)
+        
+        # Project back to output dimension
+        x = self.fc_out(x)
+        
+        # Remove channel dimension for scalar outputs
+        if self.out_channels == 1:
+            x = x.squeeze(-1)
+            
         return x

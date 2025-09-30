@@ -36,15 +36,15 @@ def pred_ALDS(idxs, exp_name, encoder, classifier, model, dataset, num_partition
             timestep = idx
             for pred_y_list, labels in zip(all_pred_y_list, all_labels):
                 try:
-                    _, sub_y_list, _ = dataset.get_one_full_sample(timestep+3)
+                    _, _, sub_y_list = dataset.get_one_full_sample(timestep)
                 except:
-                    _, sub_y_list, _, _ = dataset.get_one_full_sample(timestep+3)
+                    _, sub_y_list, _, _ = dataset.get_one_full_sample(timestep)
                 pred_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), pred_y_list)
                 sub_y = dataset.reconstruct_from_partitions(x.unsqueeze(0), sub_y_list)
 
                 plot_prediction(sub_y, pred_y, save_mode=save_mode, path=f'logs/figures/{exp_name}/timestep_{timestep}')
                 
-                plot_partition(sub_y, pred_y, labels, kwargs['sub_size']+2, save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_timestep_{timestep}')
+                plot_partition(sub_y, pred_y, labels, kwargs['sub_size'], save_mode=save_mode, path=f'logs/figures/{exp_name}/partition_timestep_{timestep}')
 
                 r2_scores.append(r2_score(sub_y.flatten().cpu().detach().numpy(), pred_y.flatten().cpu().detach().numpy()))
                 # save the prediction

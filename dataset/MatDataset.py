@@ -1,8 +1,9 @@
 import os
-# os.environ['HDF5_DISABLE_VERSION_CHECK'] = '2' # Only add this for TRACE to work, comment out for other cases! 
+os.environ['HDF5_DISABLE_VERSION_CHECK'] = '2' # Only add this for TRACE to work, comment out for other cases! 
 
 import torch
 import numpy as np
+from tqdm import tqdm
 import scipy.io
 import ctypes
 from dolfin import *
@@ -729,7 +730,11 @@ class JHTDB_RECTANGULAR(Dataset):
         return len(self.data)
     
     def __getitem__(self, idx):
-        return self.data[idx]
+        x, y = self.data[idx]
+        # normalize the input and label between 0 and 1
+        x = (x - torch.min(x)) / (torch.max(x) - torch.min(x))
+        y = (y - torch.min(y)) / (torch.max(y) - torch.min(y))
+        return x, y
     
     def get_one_full_sample(self, idx):
         if not self.flag_partition:
@@ -745,6 +750,7 @@ class JHTDB_RECTANGULAR(Dataset):
                 u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
                 u_input = torch.tensor(u_input[0, :, :, :])
                 u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
+                u_input = (u_input - torch.min(u_input)) / (torch.max(u_input) - torch.min(u_input))
                 # print(u_input.shape)
                 # u_label at the next time step
                 with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(valid_label_idx)), 'r') as f:
@@ -752,6 +758,7 @@ class JHTDB_RECTANGULAR(Dataset):
                     u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
                     u_label = torch.tensor(u_label[0, :, :, :])
                     u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
+                    u_label = (u_label - torch.min(u_label)) / (torch.max(u_label) - torch.min(u_label))
                     u_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
                     u_label_list = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
         return u_input.unsqueeze(-1), u_input_list, u_label_list
@@ -807,7 +814,7 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         os.makedirs(os.path.join(self.root, 'processed'), exist_ok=True)
         u_list = []
         print(self.valid_tsteps)
-        for i in range(self.tend - self.tstart - 5):
+        for i in tqdm(range(self.tend - self.tstart - 5)):
             with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(i+1)), 'r') as f:
                 u_idx = str(i+1).rjust(4, '0')
                 u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
@@ -816,8 +823,8 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
                 # normalize the input
                 u_input = (u_input - torch.min(u_input)) / (torch.max(u_input) - torch.min(u_input))
                 # u_label at the next time step
-                with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(i+4)), 'r') as f:
-                    u_label_idx = str(i+4).rjust(4, '0')  
+                with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(i+2)), 'r') as f:
+                    u_label_idx = str(i+2).rjust(4, '0')  
                     u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
                     u_label = torch.tensor(u_label[0, :, :, :])
                     u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
@@ -919,27 +926,32 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         # partition the domain into num_partitions subdomains of the same size
         x_list = []
         boundary_list = []
-        num_partitions_dim_x = x.shape[1] // partition_sub_size
-        num_partitions_dim_y = x.shape[0] // partition_sub_size
+        num_partitions_dim_x = x.shape[1] - partition_sub_size + 1
+        num_partitions_dim_y = x.shape[0] - partition_sub_size + 1
 
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
-                cur_x = x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, :]
+                # cur_x = x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, :]
+                cur_x = x[j:j+partition_sub_size, i:i+partition_sub_size, :]
                 # create a list that holds all boundary coordinates and boundary values
                 boundary_bottom = torch.zeros((partition_sub_size, 3))
                 boundary_bottom[:, 0] =torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                boundary_bottom[:, 2] = x[j*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, 0]
+                # boundary_bottom[:, 2] = x[j*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, 0]
+                boundary_bottom[:, 2] = x[j, i:i+partition_sub_size, 0]
                 boundary_top = torch.zeros((partition_sub_size, 3))
                 boundary_top[:, 0] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
                 boundary_top[:, 1] = partition_sub_size-1
-                boundary_top[:, 2] = x[(j+1)*partition_sub_size-1, i*partition_sub_size:(i+1)*partition_sub_size, 0]
+                # boundary_top[:, 2] = x[(j+1)*partition_sub_size-1, i*partition_sub_size:(i+1)*partition_sub_size, 0]
+                boundary_top[:, 2] = x[j+partition_sub_size-1, i:i+partition_sub_size, 0]
                 boundary_left = torch.zeros((partition_sub_size, 3))
                 boundary_left[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                boundary_left[:, 2] = x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size, 0]
+                # boundary_left[:, 2] = x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size, 0]
+                boundary_left[:, 2] = x[j:j+partition_sub_size, i, 0]
                 boundary_right = torch.zeros((partition_sub_size, 3))
                 boundary_right[:, 0] = partition_sub_size-1
                 boundary_right[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                boundary_right[:, 2] = x[j*partition_sub_size:(j+1)*partition_sub_size, (i+1)*partition_sub_size-1, 0]
+                # boundary_right[:, 2] = x[j*partition_sub_size:(j+1)*partition_sub_size, (i+1)*partition_sub_size-1, 0]
+                boundary_right[:, 2] = x[j:j+partition_sub_size, i+partition_sub_size-1, 0]
                 bc_values = torch.vstack((boundary_bottom, boundary_top, boundary_left, boundary_right))
                 boundary_list.append(bc_values)
                 dist2bd_x = torch.linspace(0, partition_sub_size-1, partition_sub_size).unsqueeze(0).repeat(partition_sub_size, 1)
@@ -993,13 +1005,14 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         # print(self.sub_size)
         # print(num_partitions_dim_x, num_partitions_dim_y)
 
-        num_partitions_dim_x = x.shape[2] // partition_sub_size
-        num_partitions_dim_y = x.shape[1] // partition_sub_size
+        num_partitions_dim_x = x.shape[2] - partition_sub_size + 1
+        num_partitions_dim_y = x.shape[1] - partition_sub_size + 1
 
         if len(x.shape) == 3:    
-            x = torch.zeros(num_partitions_dim_y*partition_sub_size, num_partitions_dim_x*partition_sub_size, x.shape[-1])
+            # x = torch.zeros(num_partitions_dim_y*partition_sub_size, num_partitions_dim_x*partition_sub_size, x.shape[-1])
+            x = torch.zero(num_partitions_dim_y+partition_sub_size-1, num_partitions_dim_x+partition_sub_size-1, x.shape[-1])
         elif len(x.shape) == 4:
-            x = torch.zeros(x.shape[0], num_partitions_dim_y*partition_sub_size, num_partitions_dim_x*partition_sub_size, x.shape[-1])
+            x = torch.zeros(x.shape[0], num_partitions_dim_y+partition_sub_size-1, num_partitions_dim_x+partition_sub_size-1, x.shape[-1])
         else:
             raise ValueError('Invalid tensor shape')
         # print(x.shape)
@@ -1008,7 +1021,7 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
         # if len(x_list) == num_partitions_dim**2:
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
-                x[:, j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, :] = x_list[i*num_partitions_dim_y + j][:, :, 0].unsqueeze(-1)
+                x[:, j:j+partition_sub_size, i:i+partition_sub_size, :] = x_list[i*num_partitions_dim_y + j][:, :, 0].unsqueeze(-1)
 
         # if pad_size_x == 1 and pad_size_y > 1:
         #     return x[:, pad_size_y:-pad_size_y, :, :]
@@ -1045,8 +1058,8 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
             return self.data[idx]
         else:
             valid_idx = self.valid_tsteps[idx]
-            if self.valid_tsteps[idx]+3 in self.valid_tsteps:
-                valid_label_idx = self.valid_tsteps[idx] + 3
+            if self.valid_tsteps[idx]+1 in self.valid_tsteps:
+                valid_label_idx = self.valid_tsteps[idx] + 1
             else:
                 raise ValueError('Label data not found')
             with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(valid_idx)), 'r') as f:
@@ -1054,7 +1067,7 @@ class JHTDB_RECTANGULAR_BOUNDARY(Dataset):
                 u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
                 u_input = torch.tensor(u_input[0, :, :, :])
                 u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
-                # print(u_input.shape)
+
                 # u_label at the next time step
                 with h5py.File(os.path.join(self.root, 'raw', 'data_{}.h5'.format(valid_label_idx)), 'r') as f:
                     u_label_idx = str(valid_label_idx).rjust(4, '0')
@@ -1152,32 +1165,37 @@ class JHTDB_BOUNDARY(Dataset):
         # partition the domain into num_partitions subdomains of the same size
         x_list = []
         boundary_list = []
-        num_partitions_dim_x = x.shape[1] // partition_sub_size
-        num_partitions_dim_y = x.shape[0] // partition_sub_size
+        num_partitions_dim_x = x.shape[1] - partition_sub_size + 1
+        num_partitions_dim_y = x.shape[0] - partition_sub_size + 1
 
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
-                cur_x = x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, :]
+                # cur_x = x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, :]
+                cur_x = x[j:j+partition_sub_size, i:i+partition_sub_size, :]
                 # create a list that holds all boundary coordinates and boundary values
                 boundary_bottom = torch.zeros((partition_sub_size, 3))
                 boundary_bottom[:, 0] =torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                boundary_bottom[:, 2] = x[j*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, 0]
+                # boundary_bottom[:, 2] = x[j*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, 0]
+                boundary_bottom[:, 2] = x[j, i:i+partition_sub_size, 0]
                 boundary_top = torch.zeros((partition_sub_size, 3))
                 boundary_top[:, 0] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
                 boundary_top[:, 1] = partition_sub_size-1
-                boundary_top[:, 2] = x[(j+1)*partition_sub_size-1, i*partition_sub_size:(i+1)*partition_sub_size, 0]
+                # boundary_top[:, 2] = x[(j+1)*partition_sub_size-1, i*partition_sub_size:(i+1)*partition_sub_size, 0]
+                boundary_top[:, 2] = x[j+partition_sub_size-1, i:i+partition_sub_size, 0]
                 boundary_left = torch.zeros((partition_sub_size, 3))
                 boundary_left[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                boundary_left[:, 2] = x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size, 0]
+                # boundary_left[:, 2] = x[j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size, 0]
+                boundary_left[:, 2] = x[j:j+partition_sub_size, i, 0]
                 boundary_right = torch.zeros((partition_sub_size, 3))
                 boundary_right[:, 0] = partition_sub_size-1
                 boundary_right[:, 1] = torch.linspace(0, partition_sub_size-1, partition_sub_size)
-                boundary_right[:, 2] = x[j*partition_sub_size:(j+1)*partition_sub_size, (i+1)*partition_sub_size-1, 0]
+                # boundary_right[:, 2] = x[j*partition_sub_size:(j+1)*partition_sub_size, (i+1)*partition_sub_size-1, 0]
+                boundary_right[:, 2] = x[j:j+partition_sub_size, i+partition_sub_size-1, 0]
                 bc_values = torch.vstack((boundary_bottom, boundary_top, boundary_left, boundary_right))
                 boundary_list.append(bc_values)
                 dist2bd_x = torch.linspace(0, partition_sub_size-1, partition_sub_size).unsqueeze(0).repeat(partition_sub_size, 1)
                 dist2bd_y = torch.linspace(0, partition_sub_size-1, partition_sub_size).unsqueeze(1).repeat(1, partition_sub_size)
-
+                
                 dist2bd = torch.stack((dist2bd_x, dist2bd_y), dim=-1)
                 cur_x = torch.cat((cur_x, dist2bd), dim=-1)
                 x_list.append(cur_x)
@@ -1196,20 +1214,24 @@ class JHTDB_BOUNDARY(Dataset):
         else:
             with h5py.File(os.path.join(self.root, 'raw', 'data.h5'), 'r') as f:
                 valid_idx = self.valid_tsteps[idx]
-                if self.valid_tsteps[idx]+4 in self.valid_tsteps:
-                    valid_label_idx = self.valid_tsteps[idx] + 4
+                if self.valid_tsteps[idx]+1 in self.valid_tsteps:
+                    valid_label_idx = self.valid_tsteps[idx] + 1
                 else:
                     raise ValueError('Label data not found')
                 u_idx = str(valid_idx).rjust(4, '0')
                 u_input = f['Velocity_{}'.format(u_idx)][:].astype(np.float32)
                 u_input = torch.tensor(u_input[0, :, :, :])
                 u_input = torch.sqrt(u_input[:, :, 0]**2 + u_input[:, :, 1]**2 + u_input[:, :, 2]**2)
+                # normalize the input
+                u_input = (u_input - torch.min(u_input)) / (torch.max(u_input) - torch.min(u_input))
                 # print(u_input.shape)
                 # u_label at the next time step
                 u_label_idx = str(valid_label_idx).rjust(4, '0')
                 u_label = f['Velocity_{}'.format(u_label_idx)][:].astype(np.float32)
                 u_label = torch.tensor(u_label[0, :, :, :])
                 u_label = torch.sqrt(u_label[:, :, 0]**2 + u_label[:, :, 1]**2 + u_label[:, :, 2]**2)
+                # normalize the label
+                u_label = (u_label - torch.min(u_label)) / (torch.max(u_label) - torch.min(u_label))
                 u_input_list, boundary_input_list = self.get_partition_domain(u_input.unsqueeze(-1), mode='test')
                 u_label_list, _ = self.get_partition_domain(u_label.unsqueeze(-1), mode='test')
         return u_input.unsqueeze(-1), u_input_list, boundary_input_list, u_label_list
@@ -1231,13 +1253,14 @@ class JHTDB_BOUNDARY(Dataset):
         # print(self.sub_size)
         # print(num_partitions_dim_x, num_partitions_dim_y)
 
-        num_partitions_dim_x = x.shape[2] // partition_sub_size
-        num_partitions_dim_y = x.shape[1] // partition_sub_size
+        num_partitions_dim_x = x.shape[2] - partition_sub_size + 1
+        num_partitions_dim_y = x.shape[1] - partition_sub_size + 1
 
         if len(x.shape) == 3:    
-            x = torch.zeros(num_partitions_dim_y*partition_sub_size, num_partitions_dim_x*partition_sub_size, x.shape[-1])
+            # x = torch.zeros(num_partitions_dim_y*partition_sub_size, num_partitions_dim_x*partition_sub_size, x.shape[-1])
+            x = torch.zeros(num_partitions_dim_y+partition_sub_size-1, num_partitions_dim_x+partition_sub_size-1, x.shape[-1])
         elif len(x.shape) == 4:
-            x = torch.zeros(x.shape[0], num_partitions_dim_y*partition_sub_size, num_partitions_dim_x*partition_sub_size, x.shape[-1])
+            x = torch.zeros(x.shape[0], num_partitions_dim_y+partition_sub_size-1, num_partitions_dim_x+partition_sub_size-1, x.shape[-1])
         else:
             raise ValueError('Invalid tensor shape')
         # print(x.shape)
@@ -1246,6 +1269,6 @@ class JHTDB_BOUNDARY(Dataset):
         # if len(x_list) == num_partitions_dim**2:
         for i in range(num_partitions_dim_x):
             for j in range(num_partitions_dim_y):
-                x[:, j*partition_sub_size:(j+1)*partition_sub_size, i*partition_sub_size:(i+1)*partition_sub_size, :] = x_list[i*num_partitions_dim_y + j][:, :, 0].unsqueeze(-1)
+                x[:, j:j+partition_sub_size, i:i+partition_sub_size, :] = x_list[i*num_partitions_dim_y + j][:, :, 0].unsqueeze(-1)
 
         return x

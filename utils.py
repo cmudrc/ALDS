@@ -31,8 +31,8 @@ def get_cur_time():
 def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
     window_size_x, window_size_y = y_pred.shape[2], y_pred.shape[1]
     xx, yy = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y))
-    fig, axs = plt.subplots(3, 1, figsize=(5*window_size_x/window_size_y, 3*5))
-    axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
+    fig, axs = plt.subplots(1, 3, figsize=(15*window_size_x/window_size_y, 5))
+    axs[0].contourf(xx, yy, y.cpu().detach().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1.1, 100), cmap='plasma')
     axs[0].set_title('(a) Ground truth')
     axs[0].axis('off')
     axs[1].contourf(xx, yy, y_pred.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
@@ -42,10 +42,11 @@ def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
     axs[2].set_title('(c) Absolute difference by percentage')
     axs[2].axis('off')
     # add colorbar and labels to the rightmost plot
-    cbar = plt.colorbar(axs[2].collections[0], ax=axs[2], orientation='vertical')
+    cbar = plt.colorbar(axs[0].collections[0], ax=axs[0], orientation='vertical')
     cbar.set_label('Velocity magnitude (normalized)')
-    plt.tight_layout()
-
+    cbar.ax.tick_params(labelsize=60)
+    # plt.tight_layout()
+    save_mode = 'pdf'
     # plt.savefig(os.path.join(folder, f'epoch_{epoch}_batch_{batch_idx}.png'))
     if save_mode == 'wandb':
         wandb.log({'prediction': wandb.Image(plt)})
@@ -53,10 +54,10 @@ def plot_prediction(y, y_pred, save_mode='wandb', **kwargs):
         plt.show()
     elif save_mode == 'save':
         os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
-        plt.savefig(kwargs['path'] +'.pdf', format='pdf', dpi=1200)
+        plt.savefig(kwargs['path'] +'.pdf', format='pdf')
     elif save_mode == 'save_png':
         os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
-        plt.savefig(kwargs['path'] +'.png', format='png', dpi=300)
+        plt.savefig(kwargs['path'] +'.png', format='png', dpi=600)
     plt.close()
 
 
@@ -64,24 +65,27 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     # cover a colored mask on the prediction indicating the partition
     window_size_x, window_size_y = y_pred.shape[2], y_pred.shape[1]
     xx, yy = np.meshgrid(np.linspace(0, 1, window_size_x), np.linspace(0, 1, window_size_y))
-    fig, axs = plt.subplots(3, 1, figsize=(5*window_size_x/window_size_y, 3*5))
+    fig, axs = plt.subplots(3, 1, figsize=(5*window_size_x/window_size_y, 15))
 
-    colormap = plt.cm.tab20
+    colors = ['#5E9096', '#556092', '#5E2F5C', '#F2AC7C', '#555555']
 
     mask = np.zeros((window_size_y, window_size_x))
-    # for i in range(window_size_x - sub_size + 1):
-    #     for j in range(window_size_y - sub_size + 1):
-    #         mask[j:j + sub_size, i:i + sub_size] = labels[i * (window_size_y - sub_size + 1) + j]
-    for i in range(window_size_y // sub_size):
-        for j in range(window_size_x // sub_size):
-            mask[j * sub_size:(j + 1) * sub_size, i * sub_size:(i + 1) * sub_size] = labels[i * (window_size_y // sub_size) + j]
+    for i in range(window_size_x - sub_size + 1):
+        for j in range(window_size_y - sub_size + 1):
+            mask[j:j + sub_size, i:i + sub_size] = labels[i * (window_size_y - sub_size + 1) + j]
+    # for i in range(window_size_y // sub_size):
+    #     for j in range(window_size_x // sub_size):
+    #         mask[j * sub_size:(j + 1) * sub_size, i * sub_size:(i + 1) * sub_size] = labels[i * (window_size_y // sub_size) + j]
 
     # revert y axis of mask
     mask = np.flip(mask, axis=0)
 
+    # set font size
+    plt.rcParams.update({'font.size': 40})
+
     # axs[0].contourf(xx, yy, y_pred.cpu().detach().reshape(window_size_y, window_size_x), levels=100, cmap='plasma')
     axs[0].contourf(xx, yy, y_pred.cpu().squeeze(0).squeeze(-1), levels=np.linspace(0, 1, 100), cmap='plasma')
-    axs[0].set_title('(a) Prediction')
+    axs[0].set_title('(a) Prediction', fontsize=40)
     axs[0].axis('off')
     # axs[0].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
     # for i in range(int(window_size / sub_size)):
@@ -90,8 +94,8 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     #         axs[0].add_patch(rect)
 
     # axs[1].contourf(xx, yy, np.abs(y.cpu().reshape(window_size_y, window_size_x) - y_pred.cpu().reshape(window_size_y, window_size_x)) / y.cpu().reshape(window_size_y, window_size_x), levels=np.linspace(0, 1, 100), cmap='plasma')
-    axs[1].contourf(xx, yy, np.abs(y.squeeze(0).squeeze(-1).cpu() - y_pred.cpu().squeeze(0).squeeze(-1)) / y.cpu().squeeze(0).squeeze(-1), levels=np.linspace(0, 1, 100), cmap='plasma')
-    axs[1].set_title('(b) Absolute difference by percentage')
+    axs[1].contourf(xx, yy, np.abs(y.squeeze(0).squeeze(-1).cpu() - y_pred.cpu().squeeze(0).squeeze(-1)), levels=np.linspace(0, 1, 100), cmap='plasma')
+    axs[1].set_title('(b) Absolute difference', fontsize=40)
     axs[1].axis('off')
     # axs[1].imshow(mask, cmap='tab20', alpha=0.1, interpolation='none')
     # for i in range(int(window_size / sub_size)):
@@ -99,15 +103,20 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
     #         rect = mpatches.Rectangle((j * sub_size / window_size, i * sub_size / window_size), sub_size / window_size, sub_size / window_size, facecolor=colormap(labels[i * int(window_size / sub_size) + j]), edgecolor='none')
     #         axs[1].add_patch(rect)
 
-    axs[2].imshow(mask, cmap='tab20', interpolation='none')
+    # specify the color map for the mask as the given colors
+    cmap = plt.cm.colors.ListedColormap(colors)
+    # print('mask shape:', mask.shape)    
+    axs[2].imshow(mask, cmap=cmap, interpolation='none')
     # add legend to show which color corresponds to which partition
-    patches = [mpatches.Patch(color=colormap(i), label=f'Partition {i}') for i in range(len(np.unique(labels)))]
+    patches = [mpatches.Patch(color=colors[i], label=f'Partition {i}') for i in range(len(np.unique(labels)))]
     axs[2].legend(handles=patches, loc='upper right')
+    axs[2].set_title('(c) Partition', fontsize=40)
+    axs[2].axis('off')
     
     # add colorbar and labels to the rightmost plot
     # cbar = plt.colorbar(axs[1].collections[0], ax=axs[1], orientation='vertical')
     # cbar.set_label('Absolute difference')
-    # # plt.tight_layout()
+    # plt.tight_layout()
     
 
     if save_mode == 'wandb':
@@ -119,7 +128,7 @@ def plot_partition(y, y_pred, labels, sub_size, save_mode='wandb', **kwargs):
         plt.savefig(kwargs['path'] + '.pdf', format='pdf', dpi=1200)
     elif save_mode == 'save_png':
         os.makedirs(os.path.dirname(kwargs['path']), exist_ok=True)
-        plt.savefig(kwargs['path'] + '.png', format='png', dpi=300)
+        plt.savefig(kwargs['path'] + '.png', format='png', dpi=400)
     plt.close()
     
 
